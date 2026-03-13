@@ -1,0 +1,1 @@
+- [hw_setup.md](hw_setup.md) - ESP32-S3 to BrailleWave wiring: MAX232, GPIO 6/7, crossover cable
