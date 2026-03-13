@@ -1,8 +1,6 @@
 /*
  * Training engine: item selection, scoring, auto-advancement.
  * Ported from brailletrain/engine.py
- *
- * Letter-only mode (no words) for ESP32 standalone trainer.
  */
 #pragma once
 #include <Arduino.h>
@@ -146,6 +144,70 @@ public:
         session.record_letter(expected, correct);
 
         return correct;
+    }
+
+    // Score a word response per-character. Returns true if all correct.
+    // pos_correct must have at least `len` entries.
+    bool score_word(const char *expected, const char *got, int len, bool *pos_correct) {
+        bool all_ok = true;
+        for (int i = 0; i < len; i++) {
+            char e = expected[i];
+            char g = got[i];
+            if (e >= 'A' && e <= 'Z') e = e - 'A' + 'a';
+            if (g >= 'A' && g <= 'Z') g = g - 'A' + 'a';
+            bool ok = (e == g && g != 0);
+            if (pos_correct) pos_correct[i] = ok;
+
+            progress->get_letter(e).record(ok, ok ? 0 : g);
+            progress->record_encounter(e, ok);
+            session.record_letter(e, ok);
+
+            if (!ok) all_ok = false;
+        }
+        progress->level_trial_count++;
+        session.items_practiced++;
+        if (all_ok) session.correct++;
+        return all_ok;
+    }
+
+    // Select a word from eligible list, weighted by letter weakness
+    const char *select_word(const char * const *words, int n_words) {
+        if (n_words == 0) return nullptr;
+
+        // Two-pass: compute total weight, then pick
+        float total = 0;
+        for (int i = 0; i < n_words; i++) {
+            float w = 1.0f;
+            for (const char *p = words[i]; *p; p++) {
+                float acc = progress->get_letter(*p).accuracy();
+                w *= (2.0f - acc);
+            }
+            total += w;
+        }
+
+        float r = random(0, 10000) / 10000.0f * total;
+        float cum = 0;
+        for (int i = 0; i < n_words; i++) {
+            float w = 1.0f;
+            for (const char *p = words[i]; *p; p++) {
+                float acc = progress->get_letter(*p).accuracy();
+                w *= (2.0f - acc);
+            }
+            cum += w;
+            if (r <= cum) return words[i];
+        }
+        return words[n_words - 1];
+    }
+
+    // Decide whether to use a word in mixed mode
+    bool should_use_word(int eligible_word_count) {
+        if (eligible_word_count < 5) {
+            return eligible_word_count > 0 && random(0, 100) < 20;
+        }
+        LetterStats &ns = progress->get_letter(newest_letter());
+        if (ns.seen_count < 10) return random(0, 100) < 30;
+        if (ns.accuracy() >= ACCURACY_NEWEST) return random(0, 100) < 70;
+        return random(0, 100) < 50;
     }
 
     // Check advancement criteria. Returns true if advanced, writes message to buf.
