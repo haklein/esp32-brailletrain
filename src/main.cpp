@@ -52,6 +52,8 @@ AsyncWebSocket ws("/ws");
 static volatile bool mirror_enabled = false;
 static volatile bool word_spacing = false;
 static volatile bool keepalive_enabled = true;
+static volatile bool ergonomic_enabled = false;
+static volatile int max_word_len = 0;  // 0 = unlimited
 
 enum TrainMode { MODE_LETTERS, MODE_WORDS, MODE_MIXED };
 static volatile int training_mode = MODE_LETTERS;
@@ -140,13 +142,33 @@ static void ht_clear() {
 
 static void display_cells(const uint8_t *src, int src_len) {
     uint8_t cells[HT_CELLS] = {0};
-    for (int i = 0; i < src_len && i < HT_CELLS; i++)
-        cells[i] = src[i];
+
+    int left = ergonomic_enabled ? 12 : 0;
+
     if (mirror_enabled) {
-        int half = HT_CELLS / 2;
-        for (int i = 0; i < half && i < src_len; i++)
-            cells[half + i] = src[i];
+        // Right (mirror) copy: prefer cell 24, push left only if it won't fit
+        int right = 24;
+        if (right + src_len > HT_CELLS)
+            right = HT_CELLS - src_len;
+        if (right < 0) right = 0;
+
+        // Left copy: push left if 4-cell gap can't be maintained
+        if (left + src_len + 4 > right)
+            left = right - src_len - 4;
+        if (left < 0) left = 0;
+
+        for (int i = 0; i < src_len && right + i < HT_CELLS; i++)
+            cells[right + i] = src[i];
+    } else {
+        // No mirror: ensure it fits
+        if (left + src_len > HT_CELLS)
+            left = HT_CELLS - src_len;
+        if (left < 0) left = 0;
     }
+
+    for (int i = 0; i < src_len && left + i < HT_CELLS; i++)
+        cells[left + i] = src[i];
+
     ht_write_cells(cells);
 }
 
@@ -385,6 +407,8 @@ static void ws_send_state(AsyncWebSocketClient *client, Engine &engine) {
     doc["mirror"] = (bool)mirror_enabled;
     doc["spacing"] = (bool)word_spacing;
     doc["keepalive"] = (bool)keepalive_enabled;
+    doc["ergonomic"] = (bool)ergonomic_enabled;
+    doc["wordlen"] = max_word_len;
     doc["brl"] = brl_connected;
     doc["n"] = engine.session.items_practiced;
     doc["a"] = (int)(engine.session.accuracy() * 100);
@@ -489,7 +513,8 @@ static void refresh_eligible() {
     char letters[NUM_LETTERS];
     int n;
     engine.introduced_letters(letters, &n);
-    eligible_count = filter_words(letters, n, eligible, MAX_ELIGIBLE);
+    int wmax = (max_word_len > 0) ? max_word_len : 8;
+    eligible_count = filter_words(letters, n, eligible, MAX_ELIGIBLE, 2, wmax);
 }
 
 static void show_level_info() {
@@ -585,6 +610,11 @@ static void on_ws_event(AsyncWebSocket *srv, AsyncWebSocketClient *client,
                     progress.spacing = v;
                     progress.save();
                     DBG.printf("Word spacing: %s\n", v ? "on" : "off");
+                } else if (k && strcmp(k, "ergonomic") == 0) {
+                    ergonomic_enabled = v;
+                    progress.ergonomic = v;
+                    progress.save();
+                    DBG.printf("Ergonomic: %s\n", v ? "on" : "off");
                 }
             } else if (strcmp(t, "exercise") == 0) {
                 int mins = doc["mins"] | 5;
@@ -606,6 +636,12 @@ static void on_ws_event(AsyncWebSocket *srv, AsyncWebSocketClient *client,
                     state = State::RESET;
                     DBG.println("Stopped, back to trainer");
                 }
+            } else if (strcmp(t, "wordlen") == 0) {
+                max_word_len = doc["v"] | 0;
+                progress.word_max_len = max_word_len;
+                progress.save();
+                refresh_eligible();
+                DBG.printf("Max word length: %d\n", max_word_len);
             } else if (strcmp(t, "reconnect") == 0) {
                 pending_reconnect = true;
             } else if (strcmp(t, "opt") == 0 && doc["k"] && strcmp(doc["k"], "keepalive") == 0) {
@@ -692,6 +728,8 @@ void setup() {
     mirror_enabled = progress.mirror;
     word_spacing = progress.spacing;
     keepalive_enabled = progress.keepalive;
+    ergonomic_enabled = progress.ergonomic;
+    max_word_len = progress.word_max_len;
     randomSeed(analogRead(0) ^ micros());
 
     web_setup();

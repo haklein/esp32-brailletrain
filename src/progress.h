@@ -51,6 +51,8 @@ struct Progress {
     bool mirror = false;
     bool spacing = false;
     bool keepalive = true;
+    bool ergonomic = false;
+    int word_max_len = 0;  // 0 = unlimited
     LetterStats letters[26] = {};
     EncounterRecord encounters[MAX_ENCOUNTERS] = {};
     int encounter_count = 0;
@@ -108,6 +110,8 @@ struct Progress {
         doc["mirror"] = mirror;
         doc["spacing"] = spacing;
         doc["keepalive"] = keepalive;
+        doc["ergonomic"] = ergonomic;
+        doc["word_max_len"] = word_max_len;
 
         JsonObject letters_obj = doc["letters"].to<JsonObject>();
         for (int i = 0; i < 26; i++) {
@@ -164,6 +168,8 @@ struct Progress {
         mirror = doc["mirror"] | false;
         spacing = doc["spacing"] | false;
         keepalive = doc["keepalive"] | true;
+        ergonomic = doc["ergonomic"] | false;
+        word_max_len = doc["word_max_len"] | 0;
 
         JsonObject letters_obj = doc["letters"].as<JsonObject>();
         for (JsonPair kv : letters_obj) {

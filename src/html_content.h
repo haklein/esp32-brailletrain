@@ -60,7 +60,7 @@ header .stats{color:#aaa}
 <body>
 <header>
 <div><span class="title">BrailleTrain</span></div>
-<div class="stats"><span id="ci"></span><span id="bi" style="width:8px;height:8px;border-radius:50%;display:inline-block;margin-right:4px;background:#ff4444"></span>Lvl <span id="hl">1</span> | <span id="hi">0</span> items | <span id="ha">0</span>%</div>
+<div class="stats"><span id="ci"></span><span id="bi" style="font-size:12px;margin-right:4px;opacity:0.4" title="BrailleWave">&#x28FF;</span>Lvl <span id="hl">1</span> | <span id="hi">0</span> items | <span id="ha">0</span>%</div>
 <button id="sb" onclick="document.getElementById('settings').classList.toggle('show')">Settings</button>
 </header>
 <div id="main">
@@ -83,7 +83,9 @@ header .stats{color:#aaa}
 <div class="sg"><h3>Options</h3>
 <label class="tg"><input type="checkbox" id="om" onchange="sO('mirror',this.checked)"> Mirror (right hand)</label>
 <label class="tg"><input type="checkbox" id="os" onchange="sO('spacing',this.checked)"> Wide word spacing</label>
+<label class="tg"><input type="checkbox" id="oe" onchange="sO('ergonomic',this.checked)"> Ergonomic positioning</label>
 <label class="tg"><input type="checkbox" id="ok" checked onchange="sO('keepalive',this.checked)"> Auto-reconnect</label>
+<label class="tg">Max word length <select id="owl" onchange="tx({t:'wordlen',v:parseInt(this.value)})" style="background:#222;border:1px solid #444;color:#ccc;padding:2px 6px;border-radius:4px;font-size:13px"><option value="0">no limit</option><option value="3">3</option><option value="4">4</option><option value="5">5</option><option value="6">6</option><option value="7">7</option><option value="8">8</option></select></label>
 </div>
 <div class="sg"><h3>Maintenance</h3>
 <div class="bg">
@@ -162,12 +164,13 @@ case'advance':uL(m.l,m.c);sA(m);break;
 case'wp':{let d=document.getElementById('display');d.className='wm';d.innerHTML='';let tgt=m.w,typed=m.p||'';for(let i=0;i<tgt.length;i++){let sp=document.createElement('span');if(i<typed.length){sp.textContent=typed[i].toUpperCase();sp.style.color='#aaa'}else if(i===typed.length){sp.textContent='_';sp.style.color='#fff';sp.style.opacity='.6'}else{sp.textContent='_';sp.style.color='#333'}d.appendChild(sp)}break}
 case'state':uL(m.l,m.c);
 if(m.mode){let v=m.mode;document.querySelectorAll('[data-m]').forEach(b=>b.classList.toggle('a',b.dataset.m===v))}
-document.getElementById('om').checked=!!m.mirror;document.getElementById('os').checked=!!m.spacing;document.getElementById('ok').checked=m.keepalive!==false;
-document.getElementById('bi').style.background=m.brl?'#00ff88':'#ff4444';
+document.getElementById('om').checked=!!m.mirror;document.getElementById('os').checked=!!m.spacing;document.getElementById('oe').checked=!!m.ergonomic;document.getElementById('ok').checked=m.keepalive!==false;
+document.getElementById('owl').value=m.wordlen||0;
+document.getElementById('bi').style.opacity=m.brl?'1':'0.3';
 document.getElementById('hi').textContent=m.n||0;document.getElementById('ha').textContent=m.a||0;wUpd(m);break;
 case'wscanr':{let c=document.getElementById('wnets');c.innerHTML='';let ns=m.nets||[];if(ns.length===0){c.innerHTML='<div style="color:#666;font-size:13px">No networks found</div>';break}ns.forEach(n=>{let d=document.createElement('div');d.className='wn';let nm=document.createElement('span');nm.textContent=n.s;d.appendChild(nm);let info=document.createElement('span');info.className='wr';info.textContent=(n.e?'secured ':'open ')+n.r+'dBm';d.appendChild(info);d.onclick=()=>{document.getElementById('wssid').value=n.s;document.getElementById('wpf').style.display='block'};c.appendChild(d)});break}
 case'wifi':wUpd(m);break;
-case'brl':document.getElementById('bi').style.background=m.s?'#00ff88':'#ff4444';break;
+case'brl':document.getElementById('bi').style.opacity=m.s?'1':'0.3';break;
 case'extick':{let min=Math.floor(m.s/60),sec=m.s%60;document.getElementById('mstat').textContent='Exercise: '+min+':'+(sec<10?'0':'')+sec;document.getElementById('mstop').style.display='inline-block';break}
 case'exdone':document.getElementById('mstat').textContent='Exercise complete';document.getElementById('mstop').style.display='none';break;
 case'tdot':document.getElementById('mstat').textContent='Cell '+(m.c+1)+' dot '+m.d;document.getElementById('mstop').style.display='inline-block';break;
