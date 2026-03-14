@@ -47,6 +47,10 @@ struct EncounterRecord {
 
 struct Progress {
     int level = 1;
+    int mode = 0;       // 0=letters, 1=words, 2=mixed
+    bool mirror = false;
+    bool spacing = false;
+    bool keepalive = true;
     LetterStats letters[26] = {};
     EncounterRecord encounters[MAX_ENCOUNTERS] = {};
     int encounter_count = 0;
@@ -100,6 +104,10 @@ struct Progress {
         JsonDocument doc;
         doc["level"] = level;
         doc["level_trial_count"] = level_trial_count;
+        doc["mode"] = mode;
+        doc["mirror"] = mirror;
+        doc["spacing"] = spacing;
+        doc["keepalive"] = keepalive;
 
         JsonObject letters_obj = doc["letters"].to<JsonObject>();
         for (int i = 0; i < 26; i++) {
@@ -152,6 +160,10 @@ struct Progress {
 
         level = doc["level"] | 1;
         level_trial_count = doc["level_trial_count"] | 0;
+        mode = doc["mode"] | 0;
+        mirror = doc["mirror"] | false;
+        spacing = doc["spacing"] | false;
+        keepalive = doc["keepalive"] | true;
 
         JsonObject letters_obj = doc["letters"].as<JsonObject>();
         for (JsonPair kv : letters_obj) {

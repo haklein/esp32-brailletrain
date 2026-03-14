@@ -11,6 +11,7 @@
 
 #include <Arduino.h>
 #include <WiFi.h>
+#include <ESPmDNS.h>
 #include <LittleFS.h>
 #include <ESPAsyncWebServer.h>
 #include <ArduinoJson.h>
@@ -20,6 +21,7 @@
 #include "engine.h"
 #include "wordlist.h"
 #include "html_content.h"
+#include "ble_braille.h"
 
 // =========================================================================
 // Hardware
@@ -49,12 +51,26 @@ AsyncWebSocket ws("/ws");
 
 static volatile bool mirror_enabled = false;
 static volatile bool word_spacing = false;
+static volatile bool keepalive_enabled = true;
 
 enum TrainMode { MODE_LETTERS, MODE_WORDS, MODE_MIXED };
 static volatile int training_mode = MODE_LETTERS;
 
+// BrailleWave connectivity
+static bool brl_connected = false;
+static unsigned long last_key_time = 0;
+static unsigned long last_keepalive = 0;
+static volatile bool pending_reconnect = false;
+
 // Pending settings from WebSocket (processed in main loop)
 static volatile int pending_level = -1;
+
+// Pending WiFi commands from WebSocket
+static volatile bool pending_wifi_scan = false;
+static volatile bool pending_wifi_connect = false;
+static volatile bool pending_wifi_disconnect = false;
+static char pending_ssid[33] = {0};
+static char pending_pass[65] = {0};
 
 // =========================================================================
 // Key codes
@@ -214,6 +230,7 @@ static void finish_chord() {
 
 static void poll_keys() {
     while (BRL.available()) {
+        last_key_time = millis();
         int b = BRL.read();
         bool release = b & 0x80;
         uint8_t code = b & 0x7F;
@@ -367,11 +384,58 @@ static void ws_send_state(AsyncWebSocketClient *client, Engine &engine) {
     doc["mode"] = mode_str;
     doc["mirror"] = (bool)mirror_enabled;
     doc["spacing"] = (bool)word_spacing;
+    doc["keepalive"] = (bool)keepalive_enabled;
+    doc["brl"] = brl_connected;
     doc["n"] = engine.session.items_practiced;
     doc["a"] = (int)(engine.session.accuracy() * 100);
-    char buf[256];
+    if (WiFi.status() == WL_CONNECTED) {
+        doc["wssid"] = WiFi.SSID();
+        doc["wip"] = WiFi.localIP().toString();
+    }
+    char buf[384];
     serializeJson(doc, buf, sizeof(buf));
     client->text(buf);
+}
+
+// =========================================================================
+// WiFi credentials
+// =========================================================================
+
+static char wifi_ssid[33] = {0};
+static char wifi_pass[65] = {0};
+
+static bool wifi_load_creds() {
+    File f = LittleFS.open("/wifi.json", "r");
+    if (!f) return false;
+    JsonDocument doc;
+    if (deserializeJson(doc, f)) { f.close(); return false; }
+    f.close();
+    strlcpy(wifi_ssid, doc["ssid"] | "", sizeof(wifi_ssid));
+    strlcpy(wifi_pass, doc["pass"] | "", sizeof(wifi_pass));
+    return wifi_ssid[0] != 0;
+}
+
+static void wifi_save_creds() {
+    JsonDocument doc;
+    doc["ssid"] = wifi_ssid;
+    doc["pass"] = wifi_pass;
+    File f = LittleFS.open("/wifi.json", "w");
+    if (f) { serializeJson(doc, f); f.close(); }
+}
+
+static void ws_notify_wifi_status() {
+    JsonDocument doc;
+    doc["t"] = "wifi";
+    if (WiFi.status() == WL_CONNECTED) {
+        doc["ssid"] = WiFi.SSID();
+        doc["ip"] = WiFi.localIP().toString();
+        doc["s"] = "connected";
+    } else {
+        doc["s"] = "disconnected";
+    }
+    char buf[192];
+    serializeJson(doc, buf, sizeof(buf));
+    ws_send(buf);
 }
 
 // =========================================================================
@@ -380,6 +444,21 @@ static void ws_send_state(AsyncWebSocketClient *client, Engine &engine) {
 
 static Progress progress;
 static Engine engine;
+static BrailleHID bleHID;
+
+enum class AppMode { TRAINER, PASSTHROUGH, EXERCISE, TESTMODE };
+static AppMode app_mode = AppMode::TRAINER;
+
+// Exercise mode state
+static unsigned long exercise_end = 0;
+static unsigned long exercise_toggle = 0;
+static unsigned long exercise_interval = 1000;
+static bool exercise_on = false;
+
+// Test mode state
+static int test_dot_pos = 0;     // current cell position
+static int test_dot_bit = 0;     // current dot (0-7)
+static unsigned long test_step = 0;
 
 enum class State { RESET, SHOW_ITEM, WAIT_INPUT, FEEDBACK, SUMMARY };
 static State state = State::RESET;
@@ -402,7 +481,7 @@ static char msg_buf[256];
 static bool pending_advance_msg = false;
 
 // Eligible words cache
-#define MAX_ELIGIBLE 256
+#define MAX_ELIGIBLE 1024
 static const char *eligible[MAX_ELIGIBLE];
 static int eligible_count = 0;
 
@@ -489,6 +568,8 @@ static void on_ws_event(AsyncWebSocket *srv, AsyncWebSocketClient *client,
                     if (strcmp(m, "letters") == 0) training_mode = MODE_LETTERS;
                     else if (strcmp(m, "words") == 0) training_mode = MODE_WORDS;
                     else if (strcmp(m, "mixed") == 0) training_mode = MODE_MIXED;
+                    progress.mode = training_mode;
+                    progress.save();
                     DBG.printf("Mode: %s\n", m);
                 }
             } else if (strcmp(t, "opt") == 0) {
@@ -496,11 +577,50 @@ static void on_ws_event(AsyncWebSocket *srv, AsyncWebSocketClient *client,
                 bool v = doc["v"] | false;
                 if (k && strcmp(k, "mirror") == 0) {
                     mirror_enabled = v;
+                    progress.mirror = v;
+                    progress.save();
                     DBG.printf("Mirror: %s\n", v ? "on" : "off");
                 } else if (k && strcmp(k, "spacing") == 0) {
                     word_spacing = v;
+                    progress.spacing = v;
+                    progress.save();
                     DBG.printf("Word spacing: %s\n", v ? "on" : "off");
                 }
+            } else if (strcmp(t, "exercise") == 0) {
+                int mins = doc["mins"] | 5;
+                exercise_interval = doc["ms"] | 1000;
+                exercise_end = millis() + (unsigned long)mins * 60000;
+                exercise_toggle = 0;
+                exercise_on = false;
+                app_mode = AppMode::EXERCISE;
+                DBG.printf("Exercise mode: %d min\n", mins);
+            } else if (strcmp(t, "test") == 0) {
+                test_dot_pos = 0;
+                test_dot_bit = 0;
+                test_step = 0;
+                app_mode = AppMode::TESTMODE;
+                DBG.println("Test mode");
+            } else if (strcmp(t, "stop") == 0) {
+                if (app_mode == AppMode::EXERCISE || app_mode == AppMode::TESTMODE) {
+                    app_mode = AppMode::TRAINER;
+                    state = State::RESET;
+                    DBG.println("Stopped, back to trainer");
+                }
+            } else if (strcmp(t, "reconnect") == 0) {
+                pending_reconnect = true;
+            } else if (strcmp(t, "opt") == 0 && doc["k"] && strcmp(doc["k"], "keepalive") == 0) {
+                keepalive_enabled = doc["v"] | true;
+                progress.keepalive = keepalive_enabled;
+                progress.save();
+                DBG.printf("Keepalive: %s\n", keepalive_enabled ? "on" : "off");
+            } else if (strcmp(t, "wscan") == 0) {
+                pending_wifi_scan = true;
+            } else if (strcmp(t, "wconn") == 0) {
+                strlcpy(pending_ssid, doc["s"] | "", sizeof(pending_ssid));
+                strlcpy(pending_pass, doc["p"] | "", sizeof(pending_pass));
+                pending_wifi_connect = true;
+            } else if (strcmp(t, "wdisc") == 0) {
+                pending_wifi_disconnect = true;
             }
         }
     }
@@ -511,9 +631,22 @@ static void on_ws_event(AsyncWebSocket *srv, AsyncWebSocketClient *client,
 // =========================================================================
 
 static void web_setup() {
-    WiFi.mode(WIFI_AP);
+    WiFi.mode(WIFI_AP_STA);
     WiFi.softAP("BrailleTrain");
     DBG.printf("WiFi AP: BrailleTrain  IP: %s\n", WiFi.softAPIP().toString().c_str());
+
+    if (wifi_load_creds()) {
+        DBG.printf("Connecting to WiFi: %s ...\n", wifi_ssid);
+        WiFi.begin(wifi_ssid, wifi_pass);
+        unsigned long t0 = millis();
+        while (WiFi.status() != WL_CONNECTED && millis() - t0 < 10000)
+            delay(100);
+        if (WiFi.status() == WL_CONNECTED)
+            DBG.printf("WiFi STA: %s  IP: %s\n", wifi_ssid,
+                       WiFi.localIP().toString().c_str());
+        else
+            DBG.println("WiFi STA connection failed");
+    }
 
     ws.onEvent(on_ws_event);
     server.addHandler(&ws);
@@ -523,6 +656,12 @@ static void web_setup() {
     });
 
     server.begin();
+
+    if (MDNS.begin("brailletrain")) {
+        MDNS.addService("http", "tcp", 80);
+        DBG.println("mDNS: http://brailletrain.local");
+    }
+
     DBG.println("Web server started on port 80");
 }
 
@@ -549,15 +688,262 @@ void setup() {
     }
 
     engine.begin(progress);
+    training_mode = progress.mode;
+    mirror_enabled = progress.mirror;
+    word_spacing = progress.spacing;
+    keepalive_enabled = progress.keepalive;
     randomSeed(analogRead(0) ^ micros());
 
     web_setup();
+    bleHID.begin();
 
     delay(100);
     while (BRL.available()) BRL.read();
 }
 
+static void trainer_loop();
+static void passthrough_loop();
+static void exercise_loop();
+static void testmode_loop();
+
 void loop() {
+    // BLE mode switching
+    if (bleHID.connected() && app_mode == AppMode::TRAINER) {
+        app_mode = AppMode::PASSTHROUGH;
+        DBG.println("\n=== BLE host connected — pass-through mode ===");
+        chord_reset();
+        passthrough_reset_keys();
+        ws_send("{\"t\":\"ble\",\"s\":\"connected\"}");
+    } else if (!bleHID.connected() && app_mode == AppMode::PASSTHROUGH) {
+        app_mode = AppMode::TRAINER;
+        DBG.println("\n=== BLE host disconnected — trainer mode ===");
+        state = State::RESET;
+        ws_send("{\"t\":\"ble\",\"s\":\"disconnected\"}");
+    }
+
+    // Periodic WebSocket cleanup
+    ws.cleanupClients();
+
+    // Process pending WiFi commands
+    if (pending_wifi_scan) {
+        pending_wifi_scan = false;
+        int n = WiFi.scanNetworks();
+        JsonDocument doc;
+        doc["t"] = "wscanr";
+        JsonArray nets = doc["nets"].to<JsonArray>();
+        for (int i = 0; i < n && i < 20; i++) {
+            JsonObject net = nets.add<JsonObject>();
+            net["s"] = WiFi.SSID(i);
+            net["r"] = WiFi.RSSI(i);
+            net["e"] = WiFi.encryptionType(i) != WIFI_AUTH_OPEN;
+        }
+        String out;
+        serializeJson(doc, out);
+        ws_send(out.c_str());
+        WiFi.scanDelete();
+    }
+
+    if (pending_wifi_connect) {
+        pending_wifi_connect = false;
+        strlcpy(wifi_ssid, pending_ssid, sizeof(wifi_ssid));
+        strlcpy(wifi_pass, pending_pass, sizeof(wifi_pass));
+        wifi_save_creds();
+        WiFi.disconnect(false);
+        delay(100);
+        WiFi.begin(wifi_ssid, wifi_pass);
+        unsigned long t0 = millis();
+        while (WiFi.status() != WL_CONNECTED && millis() - t0 < 10000)
+            delay(100);
+        if (WiFi.status() == WL_CONNECTED)
+            DBG.printf("WiFi STA: %s  IP: %s\n", wifi_ssid,
+                       WiFi.localIP().toString().c_str());
+        else
+            DBG.printf("WiFi STA: %s failed\n", wifi_ssid);
+        ws_notify_wifi_status();
+    }
+
+    if (pending_wifi_disconnect) {
+        pending_wifi_disconnect = false;
+        WiFi.disconnect(false);
+        wifi_ssid[0] = 0;
+        wifi_pass[0] = 0;
+        wifi_save_creds();
+        DBG.println("WiFi STA disconnected");
+        ws_notify_wifi_status();
+    }
+
+    // Manual reconnect request
+    if (pending_reconnect) {
+        pending_reconnect = false;
+        DBG.println("Reconnect requested");
+        if (ht_reset()) {
+            delay(500);
+            while (BRL.available()) BRL.read();
+            brl_connected = true;
+            last_key_time = millis();
+            chord_reset();
+            state = State::SHOW_ITEM;
+            if (app_mode != AppMode::TRAINER) app_mode = AppMode::TRAINER;
+            ws_send("{\"t\":\"brl\",\"s\":true}");
+            DBG.println("BrailleWave reconnected");
+        } else {
+            brl_connected = false;
+            ws_send("{\"t\":\"brl\",\"s\":false}");
+            DBG.println("BrailleWave not responding");
+        }
+    }
+
+    // Background keepalive: ping BrailleWave after inactivity
+    if (keepalive_enabled && app_mode == AppMode::TRAINER
+        && state != State::RESET) {
+        unsigned long now = millis();
+        if (brl_connected) {
+            // Check if still alive after 30s of no keys
+            if (now - last_key_time > 30000 && now - last_keepalive > 10000) {
+                last_keepalive = now;
+                if (!ht_reset()) {
+                    brl_connected = false;
+                    ws_send("{\"t\":\"brl\",\"s\":false}");
+                    DBG.println("BrailleWave: lost connection");
+                } else {
+                    // Still connected, redisplay current item
+                    if (state == State::WAIT_INPUT) {
+                        if (item_is_word) display_word(current_item);
+                        else display_letter(current_item[0]);
+                    }
+                }
+            }
+        } else {
+            // Disconnected — try reconnect every 3 seconds
+            if (now - last_keepalive > 3000) {
+                last_keepalive = now;
+                if (ht_reset()) {
+                    delay(500);
+                    while (BRL.available()) BRL.read();
+                    brl_connected = true;
+                    last_key_time = millis();
+                    chord_reset();
+                    state = State::SHOW_ITEM;
+                    ws_send("{\"t\":\"brl\",\"s\":true}");
+                    DBG.println("BrailleWave: reconnected");
+                }
+            }
+        }
+    }
+
+    switch (app_mode) {
+    case AppMode::PASSTHROUGH: passthrough_loop(); break;
+    case AppMode::EXERCISE:    exercise_loop(); break;
+    case AppMode::TESTMODE:    testmode_loop(); break;
+    default:                   trainer_loop(); break;
+    }
+}
+
+// =========================================================================
+// Pass-through mode: bridge BLE HID ↔ BrailleWave UART
+// =========================================================================
+
+static void passthrough_loop() {
+    uint8_t cells[HT_CELLS];
+    if (bleHID.processPendingCells(cells))
+        ht_write_cells(cells);
+    passthrough_poll(bleHID);
+}
+
+// =========================================================================
+// Exercise mode: flip all dots on/off for pin break-in / cleaning
+// =========================================================================
+
+static void exercise_loop() {
+    unsigned long now = millis();
+    if (now >= exercise_end) {
+        ht_clear();
+        app_mode = AppMode::TRAINER;
+        state = State::RESET;
+        ws_send("{\"t\":\"exdone\"}");
+        DBG.println("Exercise done");
+        return;
+    }
+
+    if (now - exercise_toggle >= exercise_interval) {
+        exercise_toggle = now;
+        exercise_on = !exercise_on;
+        uint8_t cells[HT_CELLS];
+        memset(cells, exercise_on ? 0xFF : 0x00, HT_CELLS);
+        ht_write_cells(cells);
+
+        // Report remaining time
+        int secs_left = (exercise_end - now) / 1000;
+        char buf[64];
+        snprintf(buf, sizeof(buf), "{\"t\":\"extick\",\"s\":%d}", secs_left);
+        ws_send(buf);
+    }
+}
+
+// =========================================================================
+// Test mode: cycle dots sequentially + report key presses
+// =========================================================================
+
+static void testmode_loop() {
+    unsigned long now = millis();
+
+    // Cycle one dot at a time across all cells, ~200ms per step
+    if (now - test_step >= 200) {
+        test_step = now;
+        uint8_t cells[HT_CELLS] = {0};
+        cells[test_dot_pos] = (1 << test_dot_bit);
+        ht_write_cells(cells);
+
+        // Report which cell/dot is active
+        char buf[64];
+        snprintf(buf, sizeof(buf), "{\"t\":\"tdot\",\"c\":%d,\"d\":%d}",
+                 test_dot_pos, test_dot_bit + 1);
+        ws_send(buf);
+
+        test_dot_bit++;
+        if (test_dot_bit >= 8) {
+            test_dot_bit = 0;
+            test_dot_pos++;
+            if (test_dot_pos >= HT_CELLS) test_dot_pos = 0;
+        }
+    }
+
+    // Report any key presses
+    while (BRL.available()) {
+        int b = BRL.read();
+        bool release = b & 0x80;
+        uint8_t code = b & 0x7F;
+        char buf[64];
+
+        if (code >= 0x20 && code < 0x48) {
+            snprintf(buf, sizeof(buf), "{\"t\":\"tkey\",\"k\":\"rk%d\",\"r\":%s}",
+                     code - 0x20, release ? "true" : "false");
+        } else {
+            const char *name = "?";
+            const KeyInfo *ki = lookup_key(code);
+            if (ki) {
+                if (ki->dot > 0) {
+                    static char dn[8];
+                    snprintf(dn, sizeof(dn), "dot%d", ki->dot);
+                    name = dn;
+                } else if (code == KEY_SPACE) name = "space";
+                else if (code == NAV_LEFT)  name = "navL";
+                else if (code == NAV_RIGHT) name = "navR";
+                else if (code == NAV_PREV)  name = "navP";
+                else if (code == NAV_NEXT)  name = "navN";
+            }
+            snprintf(buf, sizeof(buf), "{\"t\":\"tkey\",\"k\":\"%s\",\"r\":%s}",
+                     name, release ? "true" : "false");
+        }
+        ws_send(buf);
+    }
+}
+
+// =========================================================================
+// Trainer mode
+// =========================================================================
+
+static void trainer_loop() {
     // Process pending level change from WebSocket
     int pl = pending_level;
     if (pl >= 1 && pl <= NUM_LETTERS) {
@@ -583,12 +969,12 @@ void loop() {
         if (state != State::RESET) state = State::SHOW_ITEM;
     }
 
-    // Periodic WebSocket cleanup
-    ws.cleanupClients();
-
     switch (state) {
     case State::RESET:
         if (ht_reset()) {
+            brl_connected = true;
+            last_key_time = millis();
+            ws_send("{\"t\":\"brl\",\"s\":true}");
             DBG.println("Connected to BrailleWave\n");
             refresh_eligible();
             show_level_info();
@@ -603,7 +989,10 @@ void loop() {
             display_cells(cells, n);
 
             DBG.println("Nav: left=repeat, right=skip/next, prev/next=quit");
-            DBG.printf("Web: http://%s\n\n", WiFi.softAPIP().toString().c_str());
+            DBG.printf("Web: http://%s\n", WiFi.softAPIP().toString().c_str());
+            if (WiFi.status() == WL_CONNECTED)
+                DBG.printf("Web: http://%s\n", WiFi.localIP().toString().c_str());
+            DBG.println();
             delay(2000);
             state = State::SHOW_ITEM;
         } else {

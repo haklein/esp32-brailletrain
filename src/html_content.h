@@ -51,12 +51,16 @@ header .stats{color:#aaa}
 #sb{cursor:pointer;padding:4px 12px;background:#2a2a4e;border:1px solid #444;color:#ccc;border-radius:4px;font-size:13px}
 #ci{width:8px;height:8px;border-radius:50%;display:inline-block;margin-right:4px;background:#ff4444}
 #ci.ok{background:#00ff88}
+#wnets .wn{padding:5px 8px;cursor:pointer;font-size:13px;border-radius:3px;display:flex;justify-content:space-between;align-items:center}
+#wnets .wn:hover{background:#2a2a4e}
+.wr{color:#666;font-size:11px}
+.wi{display:block;background:#222;border:1px solid #444;color:#ccc;padding:5px 8px;border-radius:4px;font-size:13px;width:100%;margin-top:4px}
 </style>
 </head>
 <body>
 <header>
 <div><span class="title">BrailleTrain</span></div>
-<div class="stats"><span id="ci"></span>Lvl <span id="hl">1</span> | <span id="hi">0</span> items | <span id="ha">0</span>%</div>
+<div class="stats"><span id="ci"></span><span id="bi" style="width:8px;height:8px;border-radius:50%;display:inline-block;margin-right:4px;background:#ff4444"></span>Lvl <span id="hl">1</span> | <span id="hi">0</span> items | <span id="ha">0</span>%</div>
 <button id="sb" onclick="document.getElementById('settings').classList.toggle('show')">Settings</button>
 </header>
 <div id="main">
@@ -79,18 +83,47 @@ header .stats{color:#aaa}
 <div class="sg"><h3>Options</h3>
 <label class="tg"><input type="checkbox" id="om" onchange="sO('mirror',this.checked)"> Mirror (right hand)</label>
 <label class="tg"><input type="checkbox" id="os" onchange="sO('spacing',this.checked)"> Wide word spacing</label>
+<label class="tg"><input type="checkbox" id="ok" checked onchange="sO('keepalive',this.checked)"> Auto-reconnect</label>
+</div>
+<div class="sg"><h3>Maintenance</h3>
+<div class="bg">
+<button class="btn" onclick="tx({t:'exercise',mins:5,ms:1000})">Exercise 5m</button>
+<button class="btn" onclick="tx({t:'exercise',mins:15,ms:1000})">Exercise 15m</button>
+<button class="btn" onclick="tx({t:'exercise',mins:5,ms:200})">Fast 5m</button>
+<button class="btn" onclick="tx({t:'exercise',mins:15,ms:200})">Fast 15m</button>
+<button class="btn" onclick="tx({t:'test'})">Test mode</button>
+<button class="btn" onclick="tx({t:'reconnect'})">Reconnect</button>
+<button class="btn" id="mstop" style="display:none" onclick="tx({t:'stop'})">Stop</button>
+</div>
+<div id="mstat" style="font-size:12px;color:#888;margin-top:4px"></div>
+<div id="tkeys" style="font-size:12px;color:#aaa;margin-top:4px;max-height:120px;overflow-y:auto"></div>
+</div>
+<div class="sg"><h3>WiFi</h3>
+<div id="wst" style="font-size:12px;color:#888;margin-bottom:6px">Not connected</div>
+<button class="btn" onclick="wScan()">Scan networks</button>
+<div id="wnets" style="margin-top:6px"></div>
+<div id="wpf" style="display:none;margin-top:6px">
+<input class="wi" id="wssid" type="text" placeholder="Network" readonly>
+<input class="wi" id="wpass" type="password" placeholder="Password">
+<div style="margin-top:4px"><button class="btn" onclick="wConn()">Connect</button></div>
+</div>
+<button class="btn" id="wdis" style="display:none;margin-top:6px" onclick="wDisc()">Disconnect</button>
 </div>
 </div>
 <script>
 const T='eaioshbcdfgjtnrlkmpquyvxzw';
-let ws,lv=1;
+let ws,lv=1,wkl=null,lastAct=0;
+async function wkAcq(){if(!('wakeLock' in navigator)||wkl)return;try{wkl=await navigator.wakeLock.request('screen');wkl.addEventListener('release',()=>{wkl=null})}catch(e){}}
+function wkPing(){lastAct=Date.now();wkAcq()}
+document.addEventListener('visibilitychange',()=>{if(document.visibilityState==='visible'&&Date.now()-lastAct<300000)wkAcq()});
+setInterval(()=>{if(wkl&&Date.now()-lastAct>300000)wkl.release()},30000);
 function iG(){let g=document.getElementById('lgrid');for(let i=1;i<=26;i++){let b=document.createElement('div');b.className='lb'+(i<=1?' a':'');b.textContent=T[i-1].toUpperCase();b.dataset.l=i;b.onclick=()=>tx({t:'level',l:i});g.appendChild(b)}}
 function sM(m){document.querySelectorAll('[data-m]').forEach(b=>b.classList.toggle('a',b.dataset.m===m));tx({t:'mode',m:m})}
 function sO(k,v){tx({t:'opt',k:k,v:v})}
 function rC(el,byte){el.innerHTML='';[[1,4],[2,5],[3,6]].forEach(([l,r])=>{[l,r].forEach(d=>{let o=document.createElement('div');o.className='dot '+((byte&(1<<(d-1)))?'on':'off');el.appendChild(o)})})}
 function dT(b){let d=[];for(let i=1;i<=6;i++)if(b&(1<<(i-1)))d.push(i);return d.length===0?'empty':(d.length===1?'dot ':'dots ')+d.join(',')}
 function uL(l,c){lv=l;document.getElementById('hl').textContent=l;document.querySelectorAll('.lb').forEach(b=>b.classList.toggle('a',parseInt(b.dataset.l)<=l));if(c)document.getElementById('ldisp').textContent=c.split('').map(x=>x.toUpperCase()).join(' ')}
-function sP(s,w){let d=document.getElementById('display');d.textContent=s.toUpperCase();d.className=w?'wm':'';document.getElementById('error-detail').classList.remove('show');document.getElementById('word-detail').classList.remove('show')}
+function sP(s,w){let d=document.getElementById('display');d.textContent=w?'_'.repeat(s.length):'?';d.className=w?'wm':'';document.getElementById('error-detail').classList.remove('show');document.getElementById('word-detail').classList.remove('show')}
 function sOK(s,w){let d=document.getElementById('display');d.textContent=s.toUpperCase();d.className='ok'+(w?' wm':'');document.getElementById('error-detail').classList.remove('show');document.getElementById('word-detail').classList.remove('show')}
 function sNO(m){
 let d=document.getElementById('display');
@@ -111,22 +144,34 @@ document.getElementById('gl').textContent=(m.g||'?').toUpperCase();document.getE
 ed.classList.add('show');wd.classList.remove('show')
 }}
 function sA(m){let d=document.getElementById('display');d.textContent=m.m;d.className='ok';d.style.fontSize='min(5vw,40px)';setTimeout(()=>d.style.fontSize='',4000)}
+function wScan(){document.getElementById('wnets').innerHTML='<div style="color:#666;font-size:13px">Scanning...</div>';tx({t:'wscan'})}
+function wConn(){let s=document.getElementById('wssid').value,p=document.getElementById('wpass').value;if(s)tx({t:'wconn',s:s,p:p})}
+function wDisc(){tx({t:'wdisc'})}
+function wUpd(m){let el=document.getElementById('wst'),db=document.getElementById('wdis');if(m&&m.s==='connected'){el.innerHTML='Connected to <b>'+m.ssid+'</b><br>IP: '+m.ip;db.style.display='inline-block'}else if(m&&m.wssid){el.innerHTML='Connected to <b>'+m.wssid+'</b><br>IP: '+m.wip;db.style.display='inline-block'}else{el.textContent='Not connected';db.style.display='none'}}
 function conn(){
 ws=new WebSocket('ws://'+location.host+'/ws');
 ws.onopen=()=>document.getElementById('ci').className='ok';
 ws.onclose=()=>{document.getElementById('ci').className='';setTimeout(conn,2000)};
-ws.onmessage=e=>{let m=JSON.parse(e.data);switch(m.t){
+ws.onmessage=e=>{let m=JSON.parse(e.data);if(m.t==='prompt'||m.t==='ok'||m.t==='no'||m.t==='wp')wkPing();switch(m.t){
 case'prompt':sP(m.s,m.w);break;
 case'ok':sOK(m.s,m.w);break;
 case'no':sNO(m);break;
 case'level':uL(m.l,m.c);break;
 case'stats':document.getElementById('hi').textContent=m.n;document.getElementById('ha').textContent=m.a;break;
 case'advance':uL(m.l,m.c);sA(m);break;
-case'wp':{let d=document.getElementById('display');d.className='wm';d.innerHTML='';let tgt=m.w,typed=m.p||'';for(let i=0;i<tgt.length;i++){let sp=document.createElement('span');if(i<typed.length){sp.textContent=typed[i].toUpperCase();sp.style.color='#aaa'}else if(i===typed.length){sp.textContent='_';sp.style.color='#fff';sp.style.opacity='.6'}else{sp.textContent=tgt[i].toUpperCase();sp.style.color='#333'}d.appendChild(sp)}break}
+case'wp':{let d=document.getElementById('display');d.className='wm';d.innerHTML='';let tgt=m.w,typed=m.p||'';for(let i=0;i<tgt.length;i++){let sp=document.createElement('span');if(i<typed.length){sp.textContent=typed[i].toUpperCase();sp.style.color='#aaa'}else if(i===typed.length){sp.textContent='_';sp.style.color='#fff';sp.style.opacity='.6'}else{sp.textContent='_';sp.style.color='#333'}d.appendChild(sp)}break}
 case'state':uL(m.l,m.c);
 if(m.mode){let v=m.mode;document.querySelectorAll('[data-m]').forEach(b=>b.classList.toggle('a',b.dataset.m===v))}
-document.getElementById('om').checked=!!m.mirror;document.getElementById('os').checked=!!m.spacing;
-document.getElementById('hi').textContent=m.n||0;document.getElementById('ha').textContent=m.a||0;break;
+document.getElementById('om').checked=!!m.mirror;document.getElementById('os').checked=!!m.spacing;document.getElementById('ok').checked=m.keepalive!==false;
+document.getElementById('bi').style.background=m.brl?'#00ff88':'#ff4444';
+document.getElementById('hi').textContent=m.n||0;document.getElementById('ha').textContent=m.a||0;wUpd(m);break;
+case'wscanr':{let c=document.getElementById('wnets');c.innerHTML='';let ns=m.nets||[];if(ns.length===0){c.innerHTML='<div style="color:#666;font-size:13px">No networks found</div>';break}ns.forEach(n=>{let d=document.createElement('div');d.className='wn';let nm=document.createElement('span');nm.textContent=n.s;d.appendChild(nm);let info=document.createElement('span');info.className='wr';info.textContent=(n.e?'secured ':'open ')+n.r+'dBm';d.appendChild(info);d.onclick=()=>{document.getElementById('wssid').value=n.s;document.getElementById('wpf').style.display='block'};c.appendChild(d)});break}
+case'wifi':wUpd(m);break;
+case'brl':document.getElementById('bi').style.background=m.s?'#00ff88':'#ff4444';break;
+case'extick':{let min=Math.floor(m.s/60),sec=m.s%60;document.getElementById('mstat').textContent='Exercise: '+min+':'+(sec<10?'0':'')+sec;document.getElementById('mstop').style.display='inline-block';break}
+case'exdone':document.getElementById('mstat').textContent='Exercise complete';document.getElementById('mstop').style.display='none';break;
+case'tdot':document.getElementById('mstat').textContent='Cell '+(m.c+1)+' dot '+m.d;document.getElementById('mstop').style.display='inline-block';break;
+case'tkey':{let el=document.getElementById('tkeys');let s=document.createElement('span');s.textContent=m.k+(m.r?' \u2191':' \u2193')+' ';s.style.color=m.r?'#666':'#0f0';el.appendChild(s);el.scrollTop=el.scrollHeight;break}
 }}}
 function tx(o){if(ws&&ws.readyState===1)ws.send(JSON.stringify(o))}
 iG();conn();
