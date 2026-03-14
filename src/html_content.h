@@ -83,7 +83,7 @@ header .stats{color:#aaa}
 <div class="sg"><h3>Options</h3>
 <label class="tg"><input type="checkbox" id="om" onchange="sO('mirror',this.checked)"> Mirror (right hand)</label>
 <label class="tg"><input type="checkbox" id="os" onchange="sO('spacing',this.checked)"> Wide word spacing</label>
-<label class="tg"><input type="checkbox" id="oa" onchange="audioOn=this.checked;if(audioOn)aInit()"> Sound feedback</label>
+<label class="tg"><input type="checkbox" id="oa" onchange="audioOn=this.checked;localStorage.setItem('sound',audioOn?'1':'');if(audioOn)aInit()"> Sound feedback</label>
 <label class="tg"><input type="checkbox" id="oe" onchange="sO('ergonomic',this.checked)"> Ergonomic positioning</label>
 <label class="tg"><input type="checkbox" id="ok" checked onchange="sO('keepalive',this.checked)"> Auto-reconnect</label>
 <label class="tg">Max word length <select id="owl" onchange="tx({t:'wordlen',v:parseInt(this.value)})" style="background:#222;border:1px solid #444;color:#ccc;padding:2px 6px;border-radius:4px;font-size:13px"><option value="0">no limit</option><option value="3">3</option><option value="4">4</option><option value="5">5</option><option value="6">6</option><option value="7">7</option><option value="8">8</option></select></label>
@@ -183,7 +183,7 @@ case'tdot':document.getElementById('mstat').textContent='Cell '+(m.c+1)+' dot '+
 case'tkey':{let el=document.getElementById('tkeys');let s=document.createElement('span');s.textContent=m.k+(m.r?' \u2191':' \u2193')+' ';s.style.color=m.r?'#666':'#0f0';el.appendChild(s);el.scrollTop=el.scrollHeight;break}
 }}}
 function tx(o){if(ws&&ws.readyState===1)ws.send(JSON.stringify(o))}
-iG();conn();
+iG();conn();if(localStorage.getItem('sound')){audioOn=true;document.getElementById('oa').checked=true}
 </script>
 </body>
 </html>)rawliteral";

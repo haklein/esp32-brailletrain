@@ -27,7 +27,7 @@
 // Hardware
 // =========================================================================
 
-HardwareSerial DBG(0);
+#define DBG Serial  // USB CDC on ESP32-S3
 
 #define BRL_TX  7
 #define BRL_RX  6

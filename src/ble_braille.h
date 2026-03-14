@@ -90,7 +90,9 @@ static const uint8_t BRL_REPORT_MAP[] = {
 // ---------------------------------------------------------------------------
 
 extern HardwareSerial BRL;
-extern HardwareSerial DBG;
+#ifndef DBG
+#define DBG Serial
+#endif
 static void ble_write_cells(const uint8_t *cells);  // defined below
 
 // ---------------------------------------------------------------------------

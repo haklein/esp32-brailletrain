@@ -273,7 +273,7 @@ public:
     }
 
     // Print session summary to debug serial
-    void print_summary(HardwareSerial &out) {
+    void print_summary(Print &out) {
         unsigned long elapsed = millis() - session.start_time;
         int mins = elapsed / 60000;
         int secs = (elapsed / 1000) % 60;
