@@ -146,10 +146,7 @@ function aInit(){if(!actx)actx=new(window.AudioContext||window.webkitAudioContex
 function aPlay(freq,type,dur,freq2){if(!audioOn||!actx)return;let o=actx.createOscillator(),g=actx.createGain();o.type=type;o.frequency.value=freq;g.gain.value=0.15;o.connect(g);g.connect(actx.destination);o.start();g.gain.exponentialRampToValueAtTime(0.001,actx.currentTime+dur);if(freq2){o.frequency.setValueAtTime(freq2,actx.currentTime+dur*0.4)}o.stop(actx.currentTime+dur)}
 function aOK(){aInit();aPlay(880,'sine',0.12);setTimeout(()=>aPlay(1320,'sine',0.15),80)}
 function aErr(){aInit();aPlay(150,'square',0.25,110)}
-async function wkAcq(){if(!('wakeLock' in navigator)||wkl)return;try{wkl=await navigator.wakeLock.request('screen');wkl.addEventListener('release',()=>{wkl=null})}catch(e){}}
-function wkPing(){lastAct=Date.now();wkAcq()}
-document.addEventListener('visibilitychange',()=>{if(document.visibilityState==='visible'&&Date.now()-lastAct<300000)wkAcq()});
-setInterval(()=>{if(wkl&&Date.now()-lastAct>300000)wkl.release()},30000);
+function wkPing(){lastAct=Date.now()}
 setInterval(()=>{if(ws&&ws.readyState===1&&lastMsg&&Date.now()-lastMsg>12000){ws.close()}},5000);
 function iG(){let g=document.getElementById('lgrid');for(let i=1;i<=26;i++){let b=document.createElement('div');b.className='lb'+(i<=1?' a':'');b.textContent=T[i-1].toUpperCase();b.dataset.l=i;b.onclick=()=>tx({t:'level',l:i});g.appendChild(b)}}
 function sM(m){document.querySelectorAll('[data-m]').forEach(b=>b.classList.toggle('a',b.dataset.m===m));tx({t:'mode',m:m})}
@@ -237,6 +234,7 @@ case'tkey':{let el=document.getElementById('tkeys');let s=document.createElement
 }}}
 function tx(o){if(ws&&ws.readyState===1)ws.send(JSON.stringify(o))}
 iG();conn();if(localStorage.getItem('sound')){audioOn=true;document.getElementById('oa').checked=true}
+if('wakeLock' in navigator)setInterval(()=>{let want=lastAct>0&&Date.now()-lastAct<300000&&document.visibilityState==='visible';if(want&&!wkl)navigator.wakeLock.request('screen').then(s=>{wkl=s;s.onrelease=()=>{wkl=null}}).catch(()=>{});if(!want&&wkl)try{wkl.release()}catch(e){}},10000)
 </script>
 </body>
 </html>)rawliteral";

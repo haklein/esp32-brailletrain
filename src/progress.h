@@ -145,22 +145,36 @@ struct Progress {
             e["t"] = encounters[idx].timestamp;
         }
 
-        File f = LittleFS.open(PROGRESS_PATH, "w");
+        // Write to temp file, then rename — crash-resilient
+        File f = LittleFS.open("/progress.tmp", "w");
         if (!f) return false;
         serializeJson(doc, f);
         f.close();
+        LittleFS.remove(PROGRESS_PATH);
+        LittleFS.rename("/progress.tmp", PROGRESS_PATH);
         return true;
     }
 
-    // Load from LittleFS
+    // Load from LittleFS (falls back to temp file if main is corrupted)
     bool load() {
         File f = LittleFS.open(PROGRESS_PATH, "r");
-        if (!f) return false;
+        if (!f) {
+            // Try temp file (crash during save)
+            f = LittleFS.open("/progress.tmp", "r");
+            if (!f) return false;
+        }
 
         JsonDocument doc;
         DeserializationError err = deserializeJson(doc, f);
         f.close();
-        if (err) return false;
+        if (err) {
+            // Main file corrupted, try temp
+            f = LittleFS.open("/progress.tmp", "r");
+            if (!f) return false;
+            err = deserializeJson(doc, f);
+            f.close();
+            if (err) return false;
+        }
 
         level = doc["level"] | 1;
         level_trial_count = doc["level_trial_count"] | 0;
