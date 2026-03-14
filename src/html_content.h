@@ -83,6 +83,7 @@ header .stats{color:#aaa}
 <div class="sg"><h3>Options</h3>
 <label class="tg"><input type="checkbox" id="om" onchange="sO('mirror',this.checked)"> Mirror (right hand)</label>
 <label class="tg"><input type="checkbox" id="os" onchange="sO('spacing',this.checked)"> Wide word spacing</label>
+<label class="tg"><input type="checkbox" id="oa" onchange="audioOn=this.checked;if(audioOn)aInit()"> Sound feedback</label>
 <label class="tg"><input type="checkbox" id="oe" onchange="sO('ergonomic',this.checked)"> Ergonomic positioning</label>
 <label class="tg"><input type="checkbox" id="ok" checked onchange="sO('keepalive',this.checked)"> Auto-reconnect</label>
 <label class="tg">Max word length <select id="owl" onchange="tx({t:'wordlen',v:parseInt(this.value)})" style="background:#222;border:1px solid #444;color:#ccc;padding:2px 6px;border-radius:4px;font-size:13px"><option value="0">no limit</option><option value="3">3</option><option value="4">4</option><option value="5">5</option><option value="6">6</option><option value="7">7</option><option value="8">8</option></select></label>
@@ -114,11 +115,16 @@ header .stats{color:#aaa}
 </div>
 <script>
 const T='eaioshbcdfgjtnrlkmpquyvxzw';
-let ws,lv=1,wkl=null,lastAct=0;
+let ws,lv=1,wkl=null,lastAct=0,audioOn=false,actx=null,wasConnected=false,lastMsg=0;
+function aInit(){if(!actx)actx=new(window.AudioContext||window.webkitAudioContext)();if(actx.state==='suspended')actx.resume()}
+function aPlay(freq,type,dur,freq2){if(!audioOn||!actx)return;let o=actx.createOscillator(),g=actx.createGain();o.type=type;o.frequency.value=freq;g.gain.value=0.15;o.connect(g);g.connect(actx.destination);o.start();g.gain.exponentialRampToValueAtTime(0.001,actx.currentTime+dur);if(freq2){o.frequency.setValueAtTime(freq2,actx.currentTime+dur*0.4)}o.stop(actx.currentTime+dur)}
+function aOK(){aInit();aPlay(880,'sine',0.12);setTimeout(()=>aPlay(1320,'sine',0.15),80)}
+function aErr(){aInit();aPlay(150,'square',0.25,110)}
 async function wkAcq(){if(!('wakeLock' in navigator)||wkl)return;try{wkl=await navigator.wakeLock.request('screen');wkl.addEventListener('release',()=>{wkl=null})}catch(e){}}
 function wkPing(){lastAct=Date.now();wkAcq()}
 document.addEventListener('visibilitychange',()=>{if(document.visibilityState==='visible'&&Date.now()-lastAct<300000)wkAcq()});
 setInterval(()=>{if(wkl&&Date.now()-lastAct>300000)wkl.release()},30000);
+setInterval(()=>{if(ws&&ws.readyState===1&&lastMsg&&Date.now()-lastMsg>12000){ws.close()}},5000);
 function iG(){let g=document.getElementById('lgrid');for(let i=1;i<=26;i++){let b=document.createElement('div');b.className='lb'+(i<=1?' a':'');b.textContent=T[i-1].toUpperCase();b.dataset.l=i;b.onclick=()=>tx({t:'level',l:i});g.appendChild(b)}}
 function sM(m){document.querySelectorAll('[data-m]').forEach(b=>b.classList.toggle('a',b.dataset.m===m));tx({t:'mode',m:m})}
 function sO(k,v){tx({t:'opt',k:k,v:v})}
@@ -152,12 +158,12 @@ function wDisc(){tx({t:'wdisc'})}
 function wUpd(m){let el=document.getElementById('wst'),db=document.getElementById('wdis');if(m&&m.s==='connected'){el.innerHTML='Connected to <b>'+m.ssid+'</b><br>IP: '+m.ip;db.style.display='inline-block'}else if(m&&m.wssid){el.innerHTML='Connected to <b>'+m.wssid+'</b><br>IP: '+m.wip;db.style.display='inline-block'}else{el.textContent='Not connected';db.style.display='none'}}
 function conn(){
 ws=new WebSocket('ws://'+location.host+'/ws');
-ws.onopen=()=>document.getElementById('ci').className='ok';
+ws.onopen=()=>{document.getElementById('ci').className='ok';lastMsg=Date.now();if(wasConnected){location.reload()}wasConnected=true};
 ws.onclose=()=>{document.getElementById('ci').className='';setTimeout(conn,2000)};
-ws.onmessage=e=>{let m=JSON.parse(e.data);if(m.t==='prompt'||m.t==='ok'||m.t==='no'||m.t==='wp')wkPing();switch(m.t){
+ws.onmessage=e=>{lastMsg=Date.now();let m=JSON.parse(e.data);if(m.t==='hb')return;if(m.t==='prompt'||m.t==='ok'||m.t==='no'||m.t==='wp')wkPing();switch(m.t){
 case'prompt':sP(m.s,m.w);break;
-case'ok':sOK(m.s,m.w);break;
-case'no':sNO(m);break;
+case'ok':sOK(m.s,m.w);aOK();break;
+case'no':sNO(m);aErr();break;
 case'level':uL(m.l,m.c);break;
 case'stats':document.getElementById('hi').textContent=m.n;document.getElementById('ha').textContent=m.a;break;
 case'advance':uL(m.l,m.c);sA(m);break;

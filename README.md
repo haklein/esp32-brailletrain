@@ -23,6 +23,8 @@ ESP32 GPIO 6 (RX) ← MAX232 ← DB9 ← BrailleWave
 - Auto-advancement when accuracy thresholds are met
 - Confusable pair drills (d/f, e/i, h/j, m/n, etc.)
 - Mirror mode (right-hand) and wide word spacing options
+- Ergonomic positioning: left word at cell 12, mirror at cell 24, 4-cell gap
+- Configurable max word length
 - All settings persisted across reboots
 
 ### Web UI
@@ -30,6 +32,7 @@ ESP32 GPIO 6 (RX) ← MAX232 ← DB9 ← BrailleWave
 - Does not reveal the prompted letter/word — only shows result after input
 - Level selector, mode switcher, option toggles
 - Screen wake lock during training (releases after 5 min inactivity)
+- Optional sound feedback: chime on correct, buzz on error (Web Audio API, no samples)
 - BrailleWave connection status indicator with auto-reconnect
 
 ### WiFi

@@ -759,8 +759,15 @@ void loop() {
         ws_send("{\"t\":\"ble\",\"s\":\"disconnected\"}");
     }
 
-    // Periodic WebSocket cleanup
+    // Periodic WebSocket cleanup + heartbeat
     ws.cleanupClients();
+    {
+        static unsigned long last_hb = 0;
+        if (millis() - last_hb > 5000) {
+            last_hb = millis();
+            ws_send("{\"t\":\"hb\"}");
+        }
+    }
 
     // Process pending WiFi commands
     if (pending_wifi_scan) {
