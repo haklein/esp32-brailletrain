@@ -33,10 +33,25 @@
 #define BRL_RX  6
 HardwareSerial BRL(1);
 
-#define HT_PKT_RESET   0xFF
-#define HT_PKT_OK      0xFE
-#define HT_PKT_BRAILLE 0x01
+#define HT_PKT_RESET    0xFF
+#define HT_PKT_OK       0xFE
+#define HT_PKT_BRAILLE  0x01
+#define HT_PKT_EXTENDED 0x79
 #define HT_MODEL_WAVE   0x05
+#define HT_SYN          0x16
+
+// Extended packet types
+#define HT_EXT_BRAILLE          0x01
+#define HT_EXT_KEY              0x04
+#define HT_EXT_CONFIRMATION     0x07
+#define HT_EXT_PING             0x19
+#define HT_EXT_GET_SERIAL       0x41
+#define HT_EXT_SET_RTC          0x44
+#define HT_EXT_GET_RTC          0x45
+#define HT_EXT_SET_FIRMNESS     0x60
+#define HT_EXT_GET_FIRMNESS     0x61
+#define HT_EXT_GET_PROTO_PROPS  0xC1
+#define HT_EXT_GET_FW_VERSION   0xC2
 
 // =========================================================================
 // Web server
@@ -134,6 +149,138 @@ static void ht_write_cells(const uint8_t *cells) {
 static void ht_clear() {
     uint8_t cells[HT_CELLS] = {0};
     ht_write_cells(cells);
+}
+
+// Send an extended packet: type + optional data
+static void ht_send_ext(uint8_t type, const uint8_t *data = nullptr, int data_len = 0) {
+    BRL.write((uint8_t)HT_PKT_EXTENDED);
+    BRL.write((uint8_t)HT_MODEL_WAVE);
+    BRL.write((uint8_t)(data_len + 1));  // length includes type byte
+    BRL.write(type);
+    if (data && data_len > 0) BRL.write(data, data_len);
+    BRL.write((uint8_t)HT_SYN);
+    BRL.flush();
+}
+
+// Read an extended packet response. Returns payload length (0 = no response).
+// out_type gets the response type, out_data gets payload (up to out_max bytes).
+static int ht_recv_ext(uint8_t *out_type, uint8_t *out_data, int out_max,
+                       int timeout_ms = 500) {
+    unsigned long deadline = millis() + timeout_ms;
+    // Look for 0x79 header
+    while (millis() < deadline) {
+        if (!BRL.available()) { delay(1); continue; }
+        int b = BRL.read();
+        if (b != HT_PKT_EXTENDED) continue;
+
+        // Read model, length, type
+        while (BRL.available() < 3 && millis() < deadline) delay(1);
+        if (BRL.available() < 3) return 0;
+        uint8_t model = BRL.read();
+        uint8_t len = BRL.read();     // includes type byte
+        *out_type = BRL.read();
+        int payload_len = len - 1;
+
+        // Read payload + SYN
+        int got = 0;
+        while (got < payload_len && millis() < deadline) {
+            if (BRL.available()) {
+                uint8_t c = BRL.read();
+                if (got < out_max) out_data[got] = c;
+                got++;
+            } else delay(1);
+        }
+        // Read trailing SYN
+        while (millis() < deadline) {
+            if (BRL.available()) { BRL.read(); break; }
+            delay(1);
+        }
+        return min(got, out_max);
+    }
+    return 0;
+}
+
+// Ping — less disruptive than full reset for keepalive
+static bool ht_ping() {
+    while (BRL.available()) BRL.read();
+    ht_send_ext(HT_EXT_PING);
+    // Accept any response (extended confirmation, or even just bytes back)
+    unsigned long deadline = millis() + 300;
+    while (millis() < deadline) {
+        if (BRL.available()) {
+            while (BRL.available()) BRL.read();
+            return true;
+        }
+        delay(5);
+    }
+    return false;
+}
+
+// Probe device: try all extended queries, return results as JSON
+static void ht_probe(String &out) {
+    JsonDocument doc;
+    doc["t"] = "devinfo";
+    uint8_t rtype, rbuf[64];
+    int rlen;
+
+    // Serial number
+    while (BRL.available()) BRL.read();
+    ht_send_ext(HT_EXT_GET_SERIAL);
+    rlen = ht_recv_ext(&rtype, rbuf, sizeof(rbuf));
+    if (rlen > 0) {
+        rbuf[min(rlen, 63)] = 0;
+        doc["serial"] = (const char *)rbuf;
+        DBG.printf("HT serial: %s\n", rbuf);
+    }
+
+    // Firmware version
+    while (BRL.available()) BRL.read();
+    ht_send_ext(HT_EXT_GET_FW_VERSION);
+    rlen = ht_recv_ext(&rtype, rbuf, sizeof(rbuf));
+    if (rlen > 0) {
+        rbuf[min(rlen, 63)] = 0;
+        doc["firmware"] = (const char *)rbuf;
+        DBG.printf("HT firmware: %s\n", rbuf);
+    }
+
+    // Protocol properties (cell count)
+    while (BRL.available()) BRL.read();
+    ht_send_ext(HT_EXT_GET_PROTO_PROPS);
+    rlen = ht_recv_ext(&rtype, rbuf, sizeof(rbuf));
+    if (rlen > 0) {
+        doc["cells"] = (int)rbuf[0];
+        DBG.printf("HT cells: %d\n", rbuf[0]);
+    }
+
+    // Firmness
+    while (BRL.available()) BRL.read();
+    ht_send_ext(HT_EXT_GET_FIRMNESS);
+    rlen = ht_recv_ext(&rtype, rbuf, sizeof(rbuf));
+    if (rlen > 0) {
+        doc["firmness"] = (int)rbuf[0];
+        doc["has_firmness"] = true;
+        DBG.printf("HT firmness: %d\n", rbuf[0]);
+    }
+
+    // RTC
+    while (BRL.available()) BRL.read();
+    ht_send_ext(HT_EXT_GET_RTC);
+    rlen = ht_recv_ext(&rtype, rbuf, sizeof(rbuf));
+    if (rlen >= 7) {
+        int year = (rbuf[0] << 8) | rbuf[1];
+        char ts[32];
+        snprintf(ts, sizeof(ts), "%04d-%02d-%02d %02d:%02d:%02d",
+                 year, rbuf[2], rbuf[3], rbuf[4], rbuf[5], rbuf[6]);
+        doc["rtc"] = ts;
+        doc["has_rtc"] = true;
+        DBG.printf("HT RTC: %s\n", ts);
+    }
+
+    // Ping
+    bool ping_ok = ht_ping();
+    doc["ping"] = ping_ok;
+
+    serializeJson(doc, out);
 }
 
 // =========================================================================
@@ -642,6 +789,85 @@ static void on_ws_event(AsyncWebSocket *srv, AsyncWebSocketClient *client,
                 progress.save();
                 refresh_eligible();
                 DBG.printf("Max word length: %d\n", max_word_len);
+            } else if (strcmp(t, "reqstats") == 0) {
+                // Send full statistics
+                JsonDocument sd;
+                sd["t"] = "fullstats";
+                int total_seen = 0, total_correct = 0;
+                char letters[NUM_LETTERS];
+                int nl;
+                engine.introduced_letters(letters, &nl);
+                JsonArray la = sd["letters"].to<JsonArray>();
+                for (int i = 0; i < nl; i++) {
+                    LetterStats &st = progress.get_letter(letters[i]);
+                    if (st.seen_count == 0) continue;
+                    total_seen += st.seen_count;
+                    total_correct += st.correct_count;
+                    JsonObject lo = la.add<JsonObject>();
+                    char ls[2] = {letters[i], 0};
+                    lo["l"] = (const char *)ls;
+                    lo["n"] = st.seen_count;
+                    lo["c"] = st.correct_count;
+                    // Top confusions for this letter
+                    JsonArray ca = lo["cf"].to<JsonArray>();
+                    for (int j = 0; j < 26; j++) {
+                        if (st.confused_with[j] > 0) {
+                            JsonObject co = ca.add<JsonObject>();
+                            char cs[2] = {(char)('a' + j), 0};
+                            co["w"] = (const char *)cs;
+                            co["n"] = st.confused_with[j];
+                        }
+                    }
+                }
+                sd["total"] = total_seen;
+                sd["correct"] = total_correct;
+                sd["level"] = engine.level();
+                String out;
+                serializeJson(sd, out);
+                client->text(out);
+            } else if (strcmp(t, "resetstats") == 0) {
+                progress = Progress();
+                progress.save();
+                engine.begin(progress);
+                training_mode = MODE_LETTERS;
+                mirror_enabled = false;
+                word_spacing = false;
+                ergonomic_enabled = false;
+                keepalive_enabled = true;
+                max_word_len = 0;
+                refresh_eligible();
+                state = State::RESET;
+                ws_notify_level(engine);
+                ws_notify_stats(engine);
+                ws_send("{\"t\":\"statsreset\"}");
+                DBG.println("All statistics and settings reset");
+            } else if (strcmp(t, "probe") == 0) {
+                String out;
+                ht_probe(out);
+                client->text(out);
+            } else if (strcmp(t, "setfirm") == 0) {
+                int v = doc["v"] | 1;
+                uint8_t d = (uint8_t)constrain(v, 0, 2);
+                ht_send_ext(HT_EXT_SET_FIRMNESS, &d, 1);
+                DBG.printf("Set firmness: %d\n", d);
+            } else if (strcmp(t, "syncrtc") == 0) {
+                // Get current time from NTP or use compile time
+                struct tm ti;
+                if (getLocalTime(&ti, 100)) {
+                    uint8_t rtc[7];
+                    int yr = ti.tm_year + 1900;
+                    rtc[0] = yr >> 8; rtc[1] = yr & 0xFF;
+                    rtc[2] = ti.tm_mon + 1;
+                    rtc[3] = ti.tm_mday;
+                    rtc[4] = ti.tm_hour;
+                    rtc[5] = ti.tm_min;
+                    rtc[6] = ti.tm_sec;
+                    ht_send_ext(HT_EXT_SET_RTC, rtc, 7);
+                    DBG.printf("Synced RTC: %04d-%02d-%02d %02d:%02d:%02d\n",
+                               yr, rtc[2], rtc[3], rtc[4], rtc[5], rtc[6]);
+                } else {
+                    DBG.println("No time available for RTC sync");
+                }
             } else if (strcmp(t, "reconnect") == 0) {
                 pending_reconnect = true;
             } else if (strcmp(t, "opt") == 0 && doc["k"] && strcmp(doc["k"], "keepalive") == 0) {
@@ -843,10 +1069,10 @@ void loop() {
         && state != State::RESET) {
         unsigned long now = millis();
         if (brl_connected) {
-            // Check if still alive after 30s of no keys
+            // Check if still alive after 30s of no keys (ping is less disruptive than reset)
             if (now - last_key_time > 30000 && now - last_keepalive > 10000) {
                 last_keepalive = now;
-                if (!ht_reset()) {
+                if (!ht_ping() && !ht_reset()) {
                     brl_connected = false;
                     ws_send("{\"t\":\"brl\",\"s\":false}");
                     DBG.println("BrailleWave: lost connection");

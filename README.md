@@ -21,7 +21,8 @@ ESP32 GPIO 6 (RX) ← MAX232 ← DB9 ← BrailleWave
 - Oxford 5000 word list with frequency weights, filtered by introduced letters
 - Per-letter statistics, confusion tracking, streak counting
 - Auto-advancement when accuracy thresholds are met
-- Confusable pair drills (d/f, e/i, h/j, m/n, etc.)
+- Confusable pair drills (d/f, e/i, h/j, m/n, etc.) plus actual confusion-based selection
+- Per-letter confusion tracking across both letter and word modes (e.g., bed→beg records d/g confusion)
 - Mirror mode (right-hand) and wide word spacing options
 - Ergonomic positioning: left word at cell 12, mirror at cell 24, 4-cell gap
 - Configurable max word length
@@ -33,6 +34,8 @@ ESP32 GPIO 6 (RX) ← MAX232 ← DB9 ← BrailleWave
 - Level selector, mode switcher, option toggles
 - Screen wake lock during training (releases after 5 min inactivity)
 - Optional sound feedback: chime on correct, buzz on error (Web Audio API, no samples)
+- Statistics panel: per-letter accuracy table, top confusion pairs, overall stats
+- Reset option to clear all statistics and settings (e.g., for user change)
 - BrailleWave connection status indicator with auto-reconnect
 
 ### WiFi
@@ -52,8 +55,11 @@ ESP32 GPIO 6 (RX) ← MAX232 ← DB9 ← BrailleWave
 ### Maintenance
 - **Exercise mode**: flips all dots on/off at slow (1s) or fast (200ms) intervals for 5 or 15 minutes — for pin break-in and cleaning
 - **Test mode**: cycles through every dot on every cell sequentially; reports all key presses/releases in the web UI
-- **Auto-reconnect**: detects BrailleWave sleep/power-off after 30s inactivity, reconnects within 3s of power-on
+- **Auto-reconnect**: detects BrailleWave sleep/power-off after 30s inactivity, reconnects within 3s of power-on (uses HT ping when supported, falls back to reset)
 - Manual reconnect button
+- **Device probe**: queries serial number, firmware version, cell count, RTC, firmness, ping support via HT extended protocol
+- **RTC sync**: synchronize BrailleWave clock from ESP32 (requires NTP via WiFi STA)
+- **Firmness control**: adjust pin pressure (soft/medium/hard) on supported models
 
 ## Building
 

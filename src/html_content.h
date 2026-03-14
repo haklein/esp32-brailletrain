@@ -35,6 +35,8 @@ header .stats{color:#aaa}
 #word-detail.show{display:block}
 #settings{display:none;background:#1a1a2e;border-top:1px solid #333;padding:12px 16px}
 #settings.show{display:flex;flex-wrap:wrap;gap:16px}
+#statpanel{display:none;background:#1a1a2e;border-top:1px solid #333;padding:12px 16px}
+#statpanel.show{display:block}
 .sg{min-width:140px}
 .sg h3{font-size:12px;color:#666;margin-bottom:6px;text-transform:uppercase;letter-spacing:.05em}
 .bg{display:flex;flex-wrap:wrap;gap:4px}
@@ -55,13 +57,18 @@ header .stats{color:#aaa}
 #wnets .wn:hover{background:#2a2a4e}
 .wr{color:#666;font-size:11px}
 .wi{display:block;background:#222;border:1px solid #444;color:#ccc;padding:5px 8px;border-radius:4px;font-size:13px;width:100%;margin-top:4px}
+#spanel{font-size:12px;margin-top:8px}
+#spanel table{border-collapse:collapse;width:100%}
+#spanel th,#spanel td{padding:3px 6px;text-align:left;border-bottom:1px solid #333}
+#spanel th{color:#888;font-size:11px;text-transform:uppercase}
+.conf-tag{display:inline-block;background:#2a2a4e;padding:1px 5px;border-radius:3px;margin:1px;font-size:11px}
 </style>
 </head>
 <body>
 <header>
 <div><span class="title">BrailleTrain</span></div>
 <div class="stats"><span id="ci"></span><span id="bi" style="font-size:12px;margin-right:4px;opacity:0.4" title="BrailleWave">&#x28FF;</span>Lvl <span id="hl">1</span> | <span id="hi">0</span> items | <span id="ha">0</span>%</div>
-<button id="sb" onclick="document.getElementById('settings').classList.toggle('show')">Settings</button>
+<div><button id="sb" style="margin-left:4px" onclick="document.getElementById('statpanel').classList.toggle('show');if(document.getElementById('statpanel').classList.contains('show'))tx({t:'reqstats'})">Stats</button><button id="sb" style="margin-left:4px" onclick="document.getElementById('settings').classList.toggle('show')">Settings</button></div>
 </header>
 <div id="main">
 <div id="display">&mdash;</div>
@@ -72,6 +79,13 @@ header .stats{color:#aaa}
 </div>
 </div>
 <div id="word-detail"></div>
+</div>
+<div id="statpanel">
+<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
+<h3 style="font-size:12px;color:#666;text-transform:uppercase;letter-spacing:.05em;margin:0">Statistics</h3>
+<button class="btn" onclick="if(confirm('Reset ALL statistics and settings?'))tx({t:'resetstats'})">Reset all</button>
+</div>
+<div id="spanel"></div>
 </div>
 <div id="settings">
 <div class="sg"><h3>Level</h3><div class="lg" id="lgrid"></div><div id="ldisp"></div></div>
@@ -100,6 +114,18 @@ header .stats{color:#aaa}
 </div>
 <div id="mstat" style="font-size:12px;color:#888;margin-top:4px"></div>
 <div id="tkeys" style="font-size:12px;color:#aaa;margin-top:4px;max-height:120px;overflow-y:auto"></div>
+</div>
+<div class="sg"><h3>Device</h3>
+<div class="bg">
+<button class="btn" onclick="tx({t:'probe'})">Probe</button>
+<button class="btn" onclick="tx({t:'syncrtc'})">Sync clock</button>
+</div>
+<div id="devinfo" style="font-size:12px;color:#888;margin-top:6px"></div>
+<div id="dfirm" style="display:none;margin-top:6px">
+<label class="tg" style="font-size:12px">Firmness <select id="firmsel" onchange="tx({t:'setfirm',v:parseInt(this.value)})" style="background:#222;border:1px solid #444;color:#ccc;padding:2px 6px;border-radius:4px;font-size:12px">
+<option value="0">Soft</option><option value="1" selected>Medium</option><option value="2">Hard</option>
+</select></label>
+</div>
 </div>
 <div class="sg"><h3>WiFi</h3>
 <div id="wst" style="font-size:12px;color:#888;margin-bottom:6px">Not connected</div>
@@ -177,6 +203,33 @@ document.getElementById('hi').textContent=m.n||0;document.getElementById('ha').t
 case'wscanr':{let c=document.getElementById('wnets');c.innerHTML='';let ns=m.nets||[];if(ns.length===0){c.innerHTML='<div style="color:#666;font-size:13px">No networks found</div>';break}ns.forEach(n=>{let d=document.createElement('div');d.className='wn';let nm=document.createElement('span');nm.textContent=n.s;d.appendChild(nm);let info=document.createElement('span');info.className='wr';info.textContent=(n.e?'secured ':'open ')+n.r+'dBm';d.appendChild(info);d.onclick=()=>{document.getElementById('wssid').value=n.s;document.getElementById('wpf').style.display='block'};c.appendChild(d)});break}
 case'wifi':wUpd(m);break;
 case'brl':document.getElementById('bi').style.opacity=m.s?'1':'0.3';break;
+case'devinfo':{let h='',el=document.getElementById('devinfo');
+if(m.serial)h+='Serial: '+m.serial+'<br>';
+if(m.firmware)h+='Firmware: '+m.firmware+'<br>';
+if(m.cells)h+='Cells: '+m.cells+'<br>';
+if(m.rtc)h+='Clock: '+m.rtc+'<br>';
+h+='Ping: '+(m.ping?'OK':'no response')+'<br>';
+if(!m.serial&&!m.firmware&&!m.cells&&!m.rtc)h+='<span style="color:#666">No extended protocol support detected (basic model)</span><br>';
+el.innerHTML=h;
+if(m.has_firmness){document.getElementById('dfirm').style.display='block';document.getElementById('firmsel').value=m.firmness||1}
+else{document.getElementById('dfirm').style.display='none'}
+break}
+case'statsreset':document.getElementById('spanel').innerHTML='<div style="color:#888">Statistics reset.</div>';break;
+case'fullstats':{let p=document.getElementById('spanel'),h='';
+let acc=m.total?Math.round(m.correct*100/m.total):0;
+h+='<div style="margin:6px 0;color:#ccc">Level '+m.level+' &middot; '+m.total+' items &middot; '+acc+'% accuracy</div>';
+// Sort letters by accuracy (worst first)
+let ls=(m.letters||[]).slice().sort((a,b)=>(a.n?a.c/a.n:1)-(b.n?b.c/b.n:1));
+h+='<table><tr><th>Letter</th><th>Seen</th><th>Acc</th><th>Confused with</th></tr>';
+ls.forEach(l=>{let a=l.n?Math.round(l.c*100/l.n):0;let col=a>=85?'#00ff88':a>=60?'#ffaa00':'#ff4444';
+let cf=(l.cf||[]).sort((a,b)=>b.n-a.n).map(c=>'<span class="conf-tag">'+c.w.toUpperCase()+':'+c.n+'</span>').join('');
+h+='<tr><td style="font-weight:bold;font-size:14px">'+l.l.toUpperCase()+'</td><td>'+l.n+'</td><td style="color:'+col+'">'+a+'%</td><td>'+cf+'</td></tr>'});
+h+='</table>';
+// Top confusion pairs across all letters
+let pairs={};(m.letters||[]).forEach(l=>{(l.cf||[]).forEach(c=>{let k=[l.l,c.w].sort().join('');if(!pairs[k])pairs[k]={a:l.l,b:c.w,n:0};pairs[k].n+=c.n})});
+let top=Object.values(pairs).sort((a,b)=>b.n-a.n).slice(0,10);
+if(top.length){h+='<div style="margin-top:8px;color:#888">Top confusions:</div><div>';top.forEach(p=>{h+='<span class="conf-tag" style="font-size:12px">'+p.a.toUpperCase()+' / '+p.b.toUpperCase()+': '+p.n+'</span> '});h+='</div>'}
+p.innerHTML=h;break}
 case'extick':{let min=Math.floor(m.s/60),sec=m.s%60;document.getElementById('mstat').textContent='Exercise: '+min+':'+(sec<10?'0':'')+sec;document.getElementById('mstop').style.display='inline-block';break}
 case'exdone':document.getElementById('mstat').textContent='Exercise complete';document.getElementById('mstop').style.display='none';break;
 case'tdot':document.getElementById('mstat').textContent='Cell '+(m.c+1)+' dot '+m.d;document.getElementById('mstop').style.display='inline-block';break;

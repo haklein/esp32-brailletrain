@@ -93,6 +93,7 @@ public:
             }
 
             float confusion_boost = 1.0f;
+            // Boost from predefined confusable pairs
             for (int j = 0; j < n; j++) {
                 if (is_confusable(letters[i], letters[j])) {
                     LetterStats &ps = progress->get_letter(letters[j]);
@@ -101,6 +102,14 @@ public:
                         break;
                     }
                 }
+            }
+            // Boost from actual confusion history
+            int total_confused = 0;
+            for (int j = 0; j < 26; j++)
+                total_confused += st.confused_with[j];
+            if (st.seen_count > 5) {
+                float conf_rate = (float)total_confused / st.seen_count;
+                confusion_boost += conf_rate * 3.0f;
             }
 
             float w = 1.0f * (1.0f + error_boost) * recency_boost * confusion_boost;
@@ -179,8 +188,14 @@ public:
         for (int i = 0; i < n_words; i++) {
             float w = 1.0f;
             for (const char *p = words[i]; *p; p++) {
-                float acc = progress->get_letter(*p).accuracy();
+                LetterStats &st = progress->get_letter(*p);
+                float acc = st.accuracy();
                 w *= (2.0f - acc);
+                // Boost for confused letters
+                int conf = 0;
+                for (int j = 0; j < 26; j++) conf += st.confused_with[j];
+                if (st.seen_count > 5 && conf > 0)
+                    w *= 1.0f + (float)conf / st.seen_count;
             }
             total += w;
         }
@@ -190,8 +205,13 @@ public:
         for (int i = 0; i < n_words; i++) {
             float w = 1.0f;
             for (const char *p = words[i]; *p; p++) {
-                float acc = progress->get_letter(*p).accuracy();
+                LetterStats &st = progress->get_letter(*p);
+                float acc = st.accuracy();
                 w *= (2.0f - acc);
+                int conf = 0;
+                for (int j = 0; j < 26; j++) conf += st.confused_with[j];
+                if (st.seen_count > 5 && conf > 0)
+                    w *= 1.0f + (float)conf / st.seen_count;
             }
             cum += w;
             if (r <= cum) return words[i];
