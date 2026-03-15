@@ -69,7 +69,3 @@ Requires [PlatformIO](https://platformio.org/).
 pio run              # build
 pio run -t upload    # flash
 ```
-
-## License
-
-Oxford 5000 word list: GPL-3.0-or-later (from Morserino-32 by Willi Kraml, OE1WKL).

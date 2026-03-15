@@ -183,7 +183,7 @@ function conn(){
 ws=new WebSocket('ws://'+location.host+'/ws');
 ws.onopen=()=>{document.getElementById('ci').className='ok';lastMsg=Date.now();if(wasConnected){location.reload()}wasConnected=true};
 ws.onclose=()=>{document.getElementById('ci').className='';setTimeout(conn,2000)};
-ws.onmessage=e=>{lastMsg=Date.now();let m=JSON.parse(e.data);if(m.t==='hb')return;if(m.t==='prompt'||m.t==='ok'||m.t==='no'||m.t==='wp')wkPing();switch(m.t){
+ws.onmessage=e=>{try{lastMsg=Date.now();let m=JSON.parse(e.data);if(m.t==='hb')return;if(m.t==='prompt'||m.t==='ok'||m.t==='no'||m.t==='wp')wkPing();switch(m.t){
 case'prompt':sP(m.s,m.w);break;
 case'ok':sOK(m.s,m.w);aOK();break;
 case'no':sNO(m);aErr();break;
@@ -231,9 +231,10 @@ case'extick':{let min=Math.floor(m.s/60),sec=m.s%60;document.getElementById('mst
 case'exdone':document.getElementById('mstat').textContent='Exercise complete';document.getElementById('mstop').style.display='none';break;
 case'tdot':document.getElementById('mstat').textContent='Cell '+(m.c+1)+' dot '+m.d;document.getElementById('mstop').style.display='inline-block';break;
 case'tkey':{let el=document.getElementById('tkeys');let s=document.createElement('span');s.textContent=m.k+(m.r?' \u2191':' \u2193')+' ';s.style.color=m.r?'#666':'#0f0';el.appendChild(s);el.scrollTop=el.scrollHeight;break}
-}}}
+}}catch(ex){console.error('WS:',ex)}}}
 function tx(o){if(ws&&ws.readyState===1)ws.send(JSON.stringify(o))}
 iG();conn();if(localStorage.getItem('sound')){audioOn=true;document.getElementById('oa').checked=true}
+document.addEventListener('click',()=>{if(audioOn&&!actx)aInit()},{once:true});document.addEventListener('touchstart',()=>{if(audioOn&&!actx)aInit()},{once:true})
 if('wakeLock' in navigator)setInterval(()=>{let want=lastAct>0&&Date.now()-lastAct<300000&&document.visibilityState==='visible';if(want&&!wkl)navigator.wakeLock.request('screen').then(s=>{wkl=s;s.onrelease=()=>{wkl=null}}).catch(()=>{});if(!want&&wkl)try{wkl.release()}catch(e){}},10000)
 </script>
 </body>

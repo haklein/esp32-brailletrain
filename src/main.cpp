@@ -845,6 +845,12 @@ static void on_ws_event(AsyncWebSocket *srv, AsyncWebSocketClient *client,
                 String out;
                 ht_probe(out);
                 client->text(out);
+                // Resync UART after sending extended packets
+                ht_reset();
+                if (state == State::WAIT_INPUT) {
+                    if (item_is_word) display_word(current_item);
+                    else display_letter(current_item[0]);
+                }
             } else if (strcmp(t, "setfirm") == 0) {
                 int v = doc["v"] | 1;
                 uint8_t d = (uint8_t)constrain(v, 0, 2);
@@ -892,6 +898,19 @@ static void on_ws_event(AsyncWebSocket *srv, AsyncWebSocketClient *client,
 // Web server setup
 // =========================================================================
 
+// Freeze DHCP: switch to static IP to prevent DHCP renewal NVS writes
+// that crash when BLE is also accessing NVS (ESP-IDF framework bug)
+static void wifi_freeze_dhcp() {
+    if (WiFi.status() == WL_CONNECTED) {
+        IPAddress ip = WiFi.localIP();
+        IPAddress gw = WiFi.gatewayIP();
+        IPAddress sn = WiFi.subnetMask();
+        IPAddress dns = WiFi.dnsIP();
+        WiFi.config(ip, gw, sn, dns);
+        DBG.printf("WiFi: frozen to static %s\n", ip.toString().c_str());
+    }
+}
+
 static void web_setup() {
     WiFi.mode(WIFI_AP_STA);
     WiFi.softAP("BrailleTrain");
@@ -903,10 +922,11 @@ static void web_setup() {
         unsigned long t0 = millis();
         while (WiFi.status() != WL_CONNECTED && millis() - t0 < 10000)
             delay(100);
-        if (WiFi.status() == WL_CONNECTED)
+        if (WiFi.status() == WL_CONNECTED) {
             DBG.printf("WiFi STA: %s  IP: %s\n", wifi_ssid,
                        WiFi.localIP().toString().c_str());
-        else
+            wifi_freeze_dhcp();
+        } else
             DBG.println("WiFi STA connection failed");
     }
 
@@ -1025,10 +1045,11 @@ void loop() {
         unsigned long t0 = millis();
         while (WiFi.status() != WL_CONNECTED && millis() - t0 < 10000)
             delay(100);
-        if (WiFi.status() == WL_CONNECTED)
+        if (WiFi.status() == WL_CONNECTED) {
             DBG.printf("WiFi STA: %s  IP: %s\n", wifi_ssid,
                        WiFi.localIP().toString().c_str());
-        else
+            wifi_freeze_dhcp();
+        } else
             DBG.printf("WiFi STA: %s failed\n", wifi_ssid);
         ws_notify_wifi_status();
     }
@@ -1069,10 +1090,10 @@ void loop() {
         && state != State::RESET) {
         unsigned long now = millis();
         if (brl_connected) {
-            // Check if still alive after 30s of no keys (ping is less disruptive than reset)
+            // Check if still alive after 30s of no keys
             if (now - last_key_time > 30000 && now - last_keepalive > 10000) {
                 last_keepalive = now;
-                if (!ht_ping() && !ht_reset()) {
+                if (!ht_reset()) {
                     brl_connected = false;
                     ws_send("{\"t\":\"brl\",\"s\":false}");
                     DBG.println("BrailleWave: lost connection");

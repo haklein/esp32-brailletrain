@@ -1,10 +1,7 @@
 #pragma once
 
 // Oxford 5000 English words with frequency weights.
-// Source: Morserino-32 v6 (Willi Kraml, OE1WKL), weights from
-// https://github.com/hermitdave/FrequencyWords
-//
-// Copyright (C) 2018-2025 Willi Kraml, OE1WKL — GPL-3.0-or-later
+// Weights from https://github.com/hermitdave/FrequencyWords
 
 #include <cstddef>
 
