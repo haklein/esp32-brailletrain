@@ -4,13 +4,16 @@ A braille training device that connects an ESP32-S3 to a HandyTech BrailleWave 4
 
 ## Hardware
 
-- ESP32-S3-DevKitC-1
+- Seeed Studio XIAO ESP32-S3 (or ESP32-S3-DevKitC-1)
 - HandyTech BrailleWave (40 cells, HT serial protocol)
 - MAX232 level shifter (TTL ↔ RS-232)
 
 ```
-ESP32 GPIO 7 (TX) → MAX232 → DB9 → BrailleWave
-ESP32 GPIO 6 (RX) ← MAX232 ← DB9 ← BrailleWave
+XIAO:      D1/A1 (GPIO2, TX) → MAX232 → DB9 → BrailleWave
+           D2/A2 (GPIO3, RX) ← MAX232 ← DB9 ← BrailleWave
+
+DevKitC-1: GPIO 7 (TX) → MAX232 → DB9 → BrailleWave
+           GPIO 6 (RX) ← MAX232 ← DB9 ← BrailleWave
 ```
 
 ## Features
@@ -51,6 +54,11 @@ ESP32 GPIO 6 (RX) ← MAX232 ← DB9 ← BrailleWave
 - BrailleWave keys → UART → ESP32 → HID input reports → Host
 - Auto-reverts to trainer mode on BLE disconnect
 - HID reports: dot keys 1-8 + nav (Input 1), 40 router keys (Input 2), 40 cells (Output 3)
+
+### Status LED
+- Flashes during BrailleWave connection attempts (yellow on DevKitC-1, white on XIAO)
+- Solid on when connected (green on DevKitC-1, white on XIAO)
+- Off when disconnected
 
 ### Maintenance
 - **Exercise mode**: flips all dots on/off at slow (1s) or fast (200ms) intervals for 5 or 15 minutes — for pin break-in and cleaning

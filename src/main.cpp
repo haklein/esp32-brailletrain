@@ -2,9 +2,10 @@
  * ESP32-S3 Braille Trainer with web UI
  *
  * Hardware:
- *   GPIO 7 (TX) -> MAX232 RX pin -> DB9 -> BrailleWave
- *   GPIO 6 (RX) <- MAX232 TX pin <- DB9 <- BrailleWave
- *   UART0 (CH340) -> PC serial monitor at 115200
+ *   BRL_TX -> MAX232 RX pin -> DB9 -> BrailleWave
+ *   BRL_RX <- MAX232 TX pin <- DB9 <- BrailleWave
+ *   USB CDC -> PC serial monitor at 115200
+ *   Pin assignments per board in platformio.ini
  *
  * WiFi AP "BrailleTrain" -> http://192.168.4.1
  */
@@ -12,6 +13,7 @@
 #include <Arduino.h>
 #include <WiFi.h>
 #include <ESPmDNS.h>
+#include <ArduinoOTA.h>
 #include <LittleFS.h>
 #include <ESPAsyncWebServer.h>
 #include <ArduinoJson.h>
@@ -29,9 +31,25 @@
 
 #define DBG Serial  // USB CDC on ESP32-S3
 
-#define BRL_TX  7
-#define BRL_RX  6
+// BRL_TX and BRL_RX defined via build flags in platformio.ini
 HardwareSerial BRL(1);
+
+// Status LED (optional, per-board via platformio.ini)
+//   LED_PIN  = simple GPIO LED (active low, XIAO)
+//   LED_RGB  = addressable WS2812 (DevKitC-1, GPIO48)
+#if defined(LED_RGB)
+static inline void led_on()      { neopixelWrite(LED_RGB, 0, 20, 0); }  // green
+static inline void led_attempt() { neopixelWrite(LED_RGB, 20, 12, 0); } // yellow
+static inline void led_off()     { neopixelWrite(LED_RGB, 0, 0, 0); }
+#elif defined(LED_PIN)
+static inline void led_on()      { digitalWrite(LED_PIN, LOW); }  // active low
+static inline void led_attempt() { digitalWrite(LED_PIN, LOW); }
+static inline void led_off()     { digitalWrite(LED_PIN, HIGH); }
+#else
+static inline void led_on()      {}
+static inline void led_attempt() {}
+static inline void led_off()     {}
+#endif
 
 #define HT_PKT_RESET    0xFF
 #define HT_PKT_OK       0xFE
@@ -119,6 +137,7 @@ static const KeyInfo KEY_TABLE[] = {
 
 static bool ht_reset() {
     DBG.println("HT reset...");
+    led_attempt();
     while (BRL.available()) BRL.read();
     BRL.write((uint8_t)HT_PKT_RESET);
     BRL.flush();
@@ -133,8 +152,10 @@ static bool ht_reset() {
     for (int i = 0; i < count; i++)
         if (buf[i] == HT_PKT_OK) {
             DBG.println("  BrailleWave OK");
+            led_on();  // stay solid
             return true;
         }
+    led_off();
     return false;
 }
 
@@ -959,6 +980,11 @@ void setup() {
     BRL.begin(19200, SERIAL_8O1, BRL_RX, BRL_TX);
     DBG.printf("UART1: 19200 8O1, TX=GPIO%d RX=GPIO%d\n", BRL_TX, BRL_RX);
 
+#if defined(LED_PIN)
+    pinMode(LED_PIN, OUTPUT);
+#endif
+    led_off();
+
     if (!LittleFS.begin(true)) {
         DBG.println("LittleFS mount failed!");
     } else {
@@ -981,6 +1007,9 @@ void setup() {
     web_setup();
     bleHID.begin();
 
+    ArduinoOTA.setHostname("brailletrain");
+    ArduinoOTA.begin();
+
     delay(100);
     while (BRL.available()) BRL.read();
 }
@@ -991,6 +1020,8 @@ static void exercise_loop();
 static void testmode_loop();
 
 void loop() {
+    ArduinoOTA.handle();
+
     // BLE mode switching
     if (bleHID.connected() && app_mode == AppMode::TRAINER) {
         app_mode = AppMode::PASSTHROUGH;
@@ -1095,6 +1126,7 @@ void loop() {
                 last_keepalive = now;
                 if (!ht_reset()) {
                     brl_connected = false;
+                    led_off();
                     ws_send("{\"t\":\"brl\",\"s\":false}");
                     DBG.println("BrailleWave: lost connection");
                 } else {
