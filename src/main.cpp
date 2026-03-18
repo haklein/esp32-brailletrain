@@ -418,10 +418,36 @@ static void finish_chord() {
     chord_n = 0;
 }
 
+static void drain_ext_packet() {
+    // Consume model + len, then len bytes + trailing SYN
+    unsigned long deadline = millis() + 100;
+    while (BRL.available() < 2 && millis() < deadline) delay(1);
+    if (BRL.available() < 2) return;
+    BRL.read();                         // model
+    uint8_t len = BRL.read();           // length (includes type)
+    int remain = len + 1;               // data + SYN
+    while (remain > 0 && millis() < deadline) {
+        if (BRL.available()) { BRL.read(); remain--; }
+        else delay(1);
+    }
+}
+
 static void poll_keys() {
     while (BRL.available()) {
         last_key_time = millis();
         int b = BRL.read();
+
+        // Skip extended packets (0x79 model len type data... SYN)
+        if (b == HT_PKT_EXTENDED) { drain_ext_packet(); continue; }
+
+        // Skip ack bytes (0xFE followed by model)
+        if (b == HT_PKT_OK) {
+            unsigned long t = millis();
+            while (!BRL.available() && millis() - t < 10) {}
+            if (BRL.available()) BRL.read();  // model byte
+            continue;
+        }
+
         bool release = b & 0x80;
         uint8_t code = b & 0x7F;
 
@@ -429,7 +455,7 @@ static void poll_keys() {
             if (!release) routing_key = code - 0x20;
             continue;
         }
-        if (!lookup_key(code) && code >= 0x20) continue;
+        if (!lookup_key(code)) continue;
 
         if (!release) {
             bool already = false;
@@ -971,6 +997,127 @@ static void web_setup() {
 // =========================================================================
 // setup / loop
 // =========================================================================
+
+#ifdef LOOPBACK_TEST
+// Loopback test — RS-232 side must have TX/RX bridged
+// Tests 8N1 and 8O1, repeats every 10s
+
+static int run_loopback(const char *label, uint32_t config) {
+    BRL.end();
+    delay(50);
+    BRL.begin(19200, config, BRL_RX, BRL_TX);
+    delay(100);
+    while (BRL.available()) BRL.read();
+
+    int pass = 0, fail = 0, timeout = 0;
+    DBG.printf("\n%s: sending 256 bytes...\n", label);
+    for (int i = 0; i < 256; i++) {
+        uint8_t tb = (uint8_t)i;
+        BRL.write(tb);
+        BRL.flush();
+        unsigned long t0 = millis();
+        while (!BRL.available() && millis() - t0 < 50) {}
+        if (BRL.available()) {
+            uint8_t got = BRL.read();
+            if (got == tb) pass++;
+            else { fail++; if (fail <= 10) DBG.printf("  MISMATCH: sent 0x%02X got 0x%02X\n", tb, got); }
+        } else { timeout++; if (timeout <= 5) DBG.printf("  TIMEOUT: sent 0x%02X\n", tb); }
+    }
+    DBG.printf("Results: %d pass, %d fail, %d timeout\n", pass, fail, timeout);
+    return (pass == 256) ? 1 : 0;
+}
+
+void setup() {
+    DBG.begin(115200);
+    delay(2000);
+    DBG.println("\n=== MAX232 Loopback Test ===");
+    DBG.printf("TX pin: GPIO%d  RX pin: GPIO%d\n", BRL_TX, BRL_RX);
+}
+
+void loop() {
+    int ok1 = run_loopback("8N1", SERIAL_8N1);
+    int ok2 = run_loopback("8O1 (HT protocol)", SERIAL_8O1);
+    DBG.printf("\n--- Summary: 8N1=%s  8O1=%s ---\n",
+               ok1 ? "OK" : "FAIL", ok2 ? "OK" : "FAIL");
+    delay(10000);
+}
+
+#elif defined(HT_PROTOCOL_TEST)
+// Bare-bones HT protocol test — no WiFi, no BLE, just UART
+// Sends reset, writes test cells, dumps all RX with timestamps
+
+void setup() {
+    DBG.begin(115200);
+    delay(2000);
+    DBG.println("\n=== HT Protocol Test (no WiFi/BLE) ===");
+    DBG.printf("TX=GPIO%d  RX=GPIO%d  19200 8O1\n", BRL_TX, BRL_RX);
+    BRL.begin(19200, SERIAL_8O1, BRL_RX, BRL_TX);
+    delay(100);
+    while (BRL.available()) BRL.read();
+
+    // Send reset
+    DBG.println("\n--- Sending HT reset (0xFF) ---");
+    BRL.write((uint8_t)0xFF);
+    BRL.flush();
+    unsigned long t0 = millis();
+    while (millis() - t0 < 2000) {
+        if (BRL.available()) {
+            DBG.printf("  +%4lums RX: 0x%02X\n", millis() - t0, BRL.read());
+        }
+    }
+
+    // Write test pattern to cells: dots 1-6 on cell 0, rest blank
+    DBG.println("\n--- Writing cells (0x3F on cell 0, rest 0x00) ---");
+    uint8_t cells[40] = {0};
+    cells[0] = 0x3F;
+    BRL.write((uint8_t)0x01);  // HT_PKT_BRAILLE
+    BRL.write(cells, 40);
+    BRL.flush();
+    t0 = millis();
+    while (millis() - t0 < 2000) {
+        if (BRL.available()) {
+            DBG.printf("  +%4lums RX: 0x%02X\n", millis() - t0, BRL.read());
+        }
+    }
+
+    // Write "hello" on first 5 cells
+    DBG.println("\n--- Writing 'hello' to cells ---");
+    memset(cells, 0, 40);
+    cells[0] = 0x11; // h: dots 1,2,5
+    cells[1] = 0x10; // e: dots 1,5
+    cells[2] = 0x07; // l: dots 1,2,3
+    cells[3] = 0x07; // l
+    cells[4] = 0x0D; // o: dots 1,3,5 -- wait that's wrong
+    // Actually: h=125, e=15, l=123, o=135
+    cells[0] = (1<<0)|(1<<1)|(1<<4);         // h: 1,2,5
+    cells[1] = (1<<0)|(1<<4);                 // e: 1,5
+    cells[2] = (1<<0)|(1<<1)|(1<<2);          // l: 1,2,3
+    cells[3] = (1<<0)|(1<<1)|(1<<2);          // l: 1,2,3
+    cells[4] = (1<<0)|(1<<2)|(1<<4);          // o: 1,3,5
+    BRL.write((uint8_t)0x01);
+    BRL.write(cells, 40);
+    BRL.flush();
+    t0 = millis();
+    while (millis() - t0 < 2000) {
+        if (BRL.available()) {
+            DBG.printf("  +%4lums RX: 0x%02X\n", millis() - t0, BRL.read());
+        }
+    }
+
+    DBG.println("\n--- Listening for key events (press keys on BrailleWave) ---");
+    DBG.println("    Format: +<ms since last> RX: 0x<byte>");
+}
+
+void loop() {
+    static unsigned long last_rx = millis();
+    if (BRL.available()) {
+        unsigned long now = millis();
+        DBG.printf("+%4lums RX: 0x%02X\n", now - last_rx, BRL.read());
+        last_rx = now;
+    }
+}
+
+#else // normal firmware
 
 void setup() {
     DBG.begin(115200);
@@ -1560,3 +1707,5 @@ static void trainer_loop() {
         break;
     }
 }
+
+#endif // LOOPBACK_TEST
