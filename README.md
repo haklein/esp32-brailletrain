@@ -12,17 +12,17 @@ A braille training device that connects an ESP32-S3 to a HandyTech BrailleWave 4
 - 14500 Li-Ion battery (3.7V 1000mAh)
 
 ```
-XIAO:      D1/A1 (GPIO2, TX) → MAX232 → DB9 → BrailleWave
-           D2/A2 (GPIO3, RX) ← MAX232 ← DB9 ← BrailleWave
+XIAO:      D1/A1 (GPIO2, TX) → MAX232 → RJ-12 → BrailleWave
+           D2/A2 (GPIO3, RX) ← MAX232 ← RJ-12 ← BrailleWave
 
-DevKitC-1: GPIO 7 (TX) → MAX232 → DB9 → BrailleWave
-           GPIO 6 (RX) ← MAX232 ← DB9 ← BrailleWave
+DevKitC-1: GPIO 7 (TX) → MAX232 → RJ-12 → BrailleWave
+           GPIO 6 (RX) ← MAX232 ← RJ-12 ← BrailleWave
 ```
 
 | | |
 |---|---|
 | ![PCB with components](images/pcb_with_components.jpg) | ![Case bottom with PCB](images/case_bottom_with_pcb.jpg) |
-| XIAO ESP32-S3, MAX232, 14500 battery holder | Custom PCB in 3D-printed case |
+| XIAO ESP32-S3, MAX232, 14500 battery holder | Custom PCB in 3D-printed case with RJ-12 connector |
 
 ## Features
 
