@@ -24,6 +24,17 @@ DevKitC-1: GPIO 7 (TX) → MAX232 → RJ-12 → BrailleWave
 | ![Custom PCB with Seeed XIAO ESP32-S3 module, MAX232 level shifter, and 14500 Li-Ion battery in holder, viewed from above](images/pcb_with_components.jpg) | ![Bottom of 3D-printed case showing milled copper PCB with through-hole solder joints and RJ-12 cable exit](images/case_bottom_with_pcb.jpg) |
 | XIAO ESP32-S3, MAX232, 14500 battery holder | Custom PCB in 3D-printed case with RJ-12 connector |
 
+### Bill of Materials
+
+| Component | Description | Link |
+|---|---|---|
+| Seeed Studio XIAO ESP32-S3 | Microcontroller with WiFi + BLE | [Seeed Wiki](https://wiki.seeedstudio.com/xiao_esp32s3_getting_started/) |
+| Adafruit RS232 Pal | MAX3232E dual-channel UART to RS-232 level shifter | [Adafruit 5987](https://www.adafruit.com/product/5987) |
+| Keystone 1028 | 14500 / AA battery holder | |
+| MSK12D18G2 | SPDT slide switch, 3-pin, 2.54mm pitch (or any compatible) | |
+| RJ-12 socket | 6P6C through-hole, for direct connection to BrailleWave | |
+| 14500 Li-Ion battery | 3.7V 1000mAh (AA-size lithium) | |
+
 ### PCB
 
 Gerber files and a DXF for CNC milling are in the `pcb/` directory. The PCB was designed as a single-layer board, CNC milled with only the bottom side island-routed (see the included DXF).
