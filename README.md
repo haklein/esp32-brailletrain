@@ -35,6 +35,10 @@ DevKitC-1: GPIO 7 (TX) → MAX232 → RJ-12 → BrailleWave
 | RJ-12 socket | 6P6C through-hole, for direct connection to BrailleWave | |
 | 14500 Li-Ion battery | 3.7V 1000mAh (AA-size lithium) | |
 
+### Schematic
+
+<a href="pcb/Schematic_esp32-brailletrain_2026-03-22.svg"><img src="pcb/Schematic_esp32-brailletrain_2026-03-22.svg" alt="Circuit schematic showing XIAO ESP32-S3 connected to MAX3232E level shifter, RJ-12 connector for BrailleWave, 14500 battery with slide switch, and status LED" width="600"></a>
+
 ### PCB
 
 Gerber files and a DXF for CNC milling are in the `pcb/` directory. The PCB was designed as a single-layer board, CNC milled with only the bottom side island-routed (see the included DXF).
