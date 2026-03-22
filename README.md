@@ -2,11 +2,14 @@
 
 A braille training device that connects an ESP32-S3 to a HandyTech BrailleWave 40-cell display via MAX232 level shifter. Includes a web UI for settings and monitoring, BLE HID pass-through for screen reader use, and maintenance tools.
 
+![Completed adapter connected to BrailleWave](images/completed_case_connected_to_braillewave.jpg)
+
 ## Hardware
 
 - Seeed Studio XIAO ESP32-S3 (or ESP32-S3-DevKitC-1)
 - HandyTech BrailleWave (40 cells, HT serial protocol)
 - MAX232 level shifter (TTL ↔ RS-232)
+- 14500 Li-Ion battery (3.7V 1000mAh)
 
 ```
 XIAO:      D1/A1 (GPIO2, TX) → MAX232 → DB9 → BrailleWave
@@ -15,6 +18,11 @@ XIAO:      D1/A1 (GPIO2, TX) → MAX232 → DB9 → BrailleWave
 DevKitC-1: GPIO 7 (TX) → MAX232 → DB9 → BrailleWave
            GPIO 6 (RX) ← MAX232 ← DB9 ← BrailleWave
 ```
+
+| | |
+|---|---|
+| ![PCB with components](images/pcb_with_components.jpg) | ![Case bottom with PCB](images/case_bottom_with_pcb.jpg) |
+| XIAO ESP32-S3, MAX232, 14500 battery holder | Custom PCB in 3D-printed case |
 
 ## Features
 
@@ -32,6 +40,9 @@ DevKitC-1: GPIO 7 (TX) → MAX232 → DB9 → BrailleWave
 - All settings persisted across reboots
 
 ### Web UI
+
+![Web UI on Android](images/android_browser_screenshot.jpg)
+
 - Real-time WebSocket updates at `http://brailletrain.local`
 - Does not reveal the prompted letter/word — only shows result after input
 - Level selector, mode switcher, option toggles
