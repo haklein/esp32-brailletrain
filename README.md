@@ -47,13 +47,50 @@ DevKitC-1: GPIO 7 (TX) → MAX232 → DB9 → BrailleWave
 - Credentials saved to flash, auto-reconnects on boot
 - mDNS: `http://brailletrain.local`
 
-### BLE HID Braille Display
+### BLE HID Braille Display (Dual Protocol)
 - Advertises as "BrailleWave 40" (BLE HID, appearance 0x03C9)
-- When a screen reader (VoiceOver, TalkBack, BRLTTY, NVDA) connects via BLE, the device enters pass-through mode
+- When a screen reader connects via BLE, the device enters pass-through mode
 - Host cell data → ESP32 → UART → BrailleWave display
 - BrailleWave keys → UART → ESP32 → HID input reports → Host
 - Auto-reverts to trainer mode on BLE disconnect
-- HID reports: dot keys 1-8 + nav (Input 1), 40 router keys (Input 2), 40 cells (Output 3)
+- **Dual protocol support** — both served simultaneously on one BLE HID service:
+  - **Standard HID Braille** (Usage Page 0x41, reports 0x11/0x12/0x13): for iOS VoiceOver, Android TalkBack, and other standard HID Braille consumers
+  - **HandyTech USB-HID** (Vendor reports 0x01/0x02/0xFB/0xFC): serial tunnel for brltty's `ht` driver — wraps HT UART frames in HID reports
+- PnP ID: HandyTech vendor 0x1FE4, product 0x0003 (USB-HID adapter)
+
+#### brltty on Linux (Fedora/GNOME)
+
+brltty's `ht` driver uses USB-specific HID APIs, so BLE HID requires a bridge.
+`braille-bridge.py` translates between the ESP32's HT vendor HID reports and a
+PTY that brltty reads as a serial device.
+
+```bash
+# Build the tcsetattr shim (one-time, needed because PTYs don't support parity)
+gcc -shared -fPIC -o /tmp/pty_serial_shim.so - -ldl <<'EOF'
+#define _GNU_SOURCE
+#include <dlfcn.h>
+#include <termios.h>
+#include <unistd.h>
+#include <errno.h>
+typedef int (*fn)(int, int, const struct termios *);
+int tcsetattr(int fd, int a, const struct termios *t) {
+    static fn real = 0;
+    if (!real) real = (fn)dlsym(RTLD_NEXT, "tcsetattr");
+    int r = real(fd, a, t);
+    if (r == -1 && errno == EINVAL && isatty(fd)) { errno = 0; return 0; }
+    return r;
+}
+EOF
+
+# Start bridge (auto-detects hidraw device)
+sudo python3 braille-bridge.py &
+
+# Start brltty
+sudo LD_PRELOAD=/tmp/pty_serial_shim.so brltty -b ht -d /tmp/braillewave -n &
+
+# Start Orca for GUI braille output
+orca --replace &
+```
 
 ### Status LED
 - Flashes during BrailleWave connection attempts (yellow on DevKitC-1, white on XIAO)

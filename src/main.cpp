@@ -1169,7 +1169,7 @@ static void testmode_loop();
 void loop() {
     ArduinoOTA.handle();
 
-    // BLE mode switching
+    // BLE HID mode switching
     if (bleHID.connected() && app_mode == AppMode::TRAINER) {
         app_mode = AppMode::PASSTHROUGH;
         DBG.println("\n=== BLE host connected — pass-through mode ===");
@@ -1182,6 +1182,7 @@ void loop() {
         state = State::RESET;
         ws_send("{\"t\":\"ble\",\"s\":\"disconnected\"}");
     }
+
 
     // Periodic WebSocket cleanup + heartbeat
     ws.cleanupClients();
@@ -1302,6 +1303,39 @@ void loop() {
         }
     }
 
+    // Always process HT USB-HID reports (brltty may send via report 0x02
+    // even when we're not in passthrough mode)
+    if (bleHID.connected()) {
+        // Forward HT serial data from brltty → UART
+        uint8_t ht_data[HT_HID_DATA_SIZE];
+        uint8_t ht_len = 0;
+        if (bleHID.processHtData(ht_data, &ht_len)) {
+            BRL.write(ht_data, ht_len);
+            BRL.flush();
+            DBG.printf("HT-HID: forwarded %d bytes to UART\n", ht_len);
+        }
+        // Forward HT firmware commands
+        uint8_t cmd = 0;
+        if (bleHID.processHtCommand(&cmd)) {
+            if (cmd == 0x01) {
+                ht_uart_rx_len = 0;
+                while (BRL.available()) BRL.read();
+                DBG.println("HT-HID: flush buffers");
+            }
+        }
+        // Buffer any UART responses for brltty GET_REPORT(0x01)
+        // (only when NOT in full passthrough, which handles this itself)
+        if (app_mode != AppMode::PASSTHROUGH) {
+            bool got_data = false;
+            while (BRL.available()) {
+                bleHID.htBufferUartByte(BRL.read());
+                got_data = true;
+            }
+            if (got_data)
+                bleHID.htNotifyData();
+        }
+    }
+
     switch (app_mode) {
     case AppMode::PASSTHROUGH: passthrough_loop(); break;
     case AppMode::EXERCISE:    exercise_loop(); break;
@@ -1320,6 +1354,7 @@ static void passthrough_loop() {
         ht_write_cells(cells);
     passthrough_poll(bleHID);
 }
+
 
 // =========================================================================
 // Exercise mode: flip all dots on/off for pin break-in / cleaning
