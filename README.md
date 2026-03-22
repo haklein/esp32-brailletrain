@@ -2,7 +2,7 @@
 
 A braille training device that connects an ESP32-S3 to a HandyTech BrailleWave 40-cell display via MAX232 level shifter. Includes a web UI for settings and monitoring, BLE HID pass-through for screen reader use, and maintenance tools.
 
-![Completed adapter connected to BrailleWave](images/completed_case_connected_to_braillewave.jpg)
+![3D-printed adapter case with RJ-12 cable plugged into a blue HandyTech BrailleWave 40-cell braille display in its carry pouch](images/completed_case_connected_to_braillewave.jpg)
 
 ## Hardware
 
@@ -21,7 +21,7 @@ DevKitC-1: GPIO 7 (TX) → MAX232 → RJ-12 → BrailleWave
 
 | | |
 |---|---|
-| ![PCB with components](images/pcb_with_components.jpg) | ![Case bottom with PCB](images/case_bottom_with_pcb.jpg) |
+| ![Custom PCB with Seeed XIAO ESP32-S3 module, MAX232 level shifter, and 14500 Li-Ion battery in holder, viewed from above](images/pcb_with_components.jpg) | ![Bottom of 3D-printed case showing milled copper PCB with through-hole solder joints and RJ-12 cable exit](images/case_bottom_with_pcb.jpg) |
 | XIAO ESP32-S3, MAX232, 14500 battery holder | Custom PCB in 3D-printed case with RJ-12 connector |
 
 ## Features
@@ -41,7 +41,7 @@ DevKitC-1: GPIO 7 (TX) → MAX232 → RJ-12 → BrailleWave
 
 ### Web UI
 
-![Web UI on Android](images/android_browser_screenshot.jpg)
+![Android browser showing BrailleTrain web UI after an incorrect answer: prompted letter F, user typed O, with dot pattern comparison showing dots 1,3,5 versus expected dots 1,2,4](images/android_browser_screenshot.jpg)
 
 - Real-time WebSocket updates at `http://brailletrain.local`
 - Does not reveal the prompted letter/word — only shows result after input
