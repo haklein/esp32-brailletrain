@@ -64,7 +64,7 @@ header .stats{color:#aaa}
 .conf-tag{display:inline-block;background:#2a2a4e;padding:1px 5px;border-radius:3px;margin:1px;font-size:11px}
 </style>
 </head>
-<body>
+<body><video id="wkv" loop playsinline style="position:fixed;left:-1px;top:-1px;width:1px;height:1px;opacity:0.01" src="data:video/webm;base64,GkXfo59ChoEBQveBAULygQRC84EIQoKEd2VibUKHgQJChYECGFOAZwEAAAAAAAHlEU2bdLpNu4tTq4QVSalmU6yBoU27i1OrhBZUrmtTrIHWTbuMU6uEElTDZ1OsggEjTbuMU6uEHFO7a1OsggHP7AEAAAAAAABZAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAVSalmsCrXsYMPQkBNgIxMYXZmNjEuNy4xMDBXQYxMYXZmNjEuNy4xMDBEiYhAj0AAAAAAABZUrmvIrgEAAAAAAAA/14EBc8WIT5D4wM0TLdGcgQAitZyDdW5kiIEAhoVWX1ZQOIOBASPjg4Q7msoA4JCwgQK6gQKagQJVsIRVuYEBElTDZ/tzc59jwIBnyJlFo4dFTkNPREVSRIeMTGF2ZjYxLjcuMTAwc3PWY8CLY8WIT5D4wM0TLdFnyKFFo4dFTkNPREVSRIeUTGF2YzYxLjE5LjEwMSBsaWJ2cHhnyKFFo4hEVVJBVElPTkSHkzAwOjAwOjAxLjAwMDAwMDAwMAAfQ7Z1p+eBAKOigQAAgBACAJ0BKgIAAgALxwiFhYiZhIg/ggAMDWAA/ua1ABxTu2uRu4+zgQC3iveBAfGCAaPwgQM="></video>
 <header>
 <div><span class="title">BrailleTrain</span></div>
 <div class="stats"><span id="ci"></span><span id="bi" style="font-size:12px;margin-right:4px;opacity:0.4" title="BrailleWave">&#x28FF;</span>Lvl <span id="hl">1</span> | <span id="hi">0</span> items | <span id="ha">0</span>%</div>
@@ -146,7 +146,9 @@ function aInit(){if(!actx)actx=new(window.AudioContext||window.webkitAudioContex
 function aPlay(freq,type,dur,freq2){if(!audioOn||!actx)return;let o=actx.createOscillator(),g=actx.createGain();o.type=type;o.frequency.value=freq;g.gain.value=0.15;o.connect(g);g.connect(actx.destination);o.start();g.gain.exponentialRampToValueAtTime(0.001,actx.currentTime+dur);if(freq2){o.frequency.setValueAtTime(freq2,actx.currentTime+dur*0.4)}o.stop(actx.currentTime+dur)}
 function aOK(){aInit();aPlay(880,'sine',0.12);setTimeout(()=>aPlay(1320,'sine',0.15),80)}
 function aErr(){aInit();aPlay(150,'square',0.25,110)}
-function wkPing(){lastAct=Date.now()}
+function wkPing(){lastAct=Date.now();wkTry()}
+function wkTry(){let want=lastAct>0&&Date.now()-lastAct<300000&&document.visibilityState==='visible';if('wakeLock' in navigator){if(want&&!wkl)navigator.wakeLock.request('screen').then(s=>{wkl=s;s.addEventListener('release',()=>{wkl=null})}).catch(()=>{});if(!want&&wkl)try{wkl.release()}catch(e){}}let v=document.getElementById('wkv');if(want&&v.paused)v.play().catch(()=>{});if(!want&&!v.paused)v.pause()}
+document.addEventListener('visibilitychange',()=>{if(document.visibilityState==='visible')wkTry()})
 setInterval(()=>{if(ws&&ws.readyState===1&&lastMsg&&Date.now()-lastMsg>12000){ws.close()}},5000);
 function iG(){let g=document.getElementById('lgrid');for(let i=1;i<=26;i++){let b=document.createElement('div');b.className='lb'+(i<=1?' a':'');b.textContent=T[i-1].toUpperCase();b.dataset.l=i;b.onclick=()=>tx({t:'level',l:i});g.appendChild(b)}}
 function sM(m){document.querySelectorAll('[data-m]').forEach(b=>b.classList.toggle('a',b.dataset.m===m));tx({t:'mode',m:m})}
@@ -235,7 +237,7 @@ case'tkey':{let el=document.getElementById('tkeys');let s=document.createElement
 function tx(o){if(ws&&ws.readyState===1)ws.send(JSON.stringify(o))}
 iG();conn();if(localStorage.getItem('sound')){audioOn=true;document.getElementById('oa').checked=true}
 document.addEventListener('click',()=>{if(audioOn&&!actx)aInit()},{once:true});document.addEventListener('touchstart',()=>{if(audioOn&&!actx)aInit()},{once:true})
-if('wakeLock' in navigator)setInterval(()=>{let want=lastAct>0&&Date.now()-lastAct<300000&&document.visibilityState==='visible';if(want&&!wkl)navigator.wakeLock.request('screen').then(s=>{wkl=s;s.onrelease=()=>{wkl=null}}).catch(()=>{});if(!want&&wkl)try{wkl.release()}catch(e){}},10000)
+setInterval(wkTry,30000)
 </script>
 </body>
 </html>)rawliteral";
