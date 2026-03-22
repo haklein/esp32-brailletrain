@@ -24,6 +24,12 @@ DevKitC-1: GPIO 7 (TX) → MAX232 → RJ-12 → BrailleWave
 | ![Custom PCB with Seeed XIAO ESP32-S3 module, MAX232 level shifter, and 14500 Li-Ion battery in holder, viewed from above](images/pcb_with_components.jpg) | ![Bottom of 3D-printed case showing milled copper PCB with through-hole solder joints and RJ-12 cable exit](images/case_bottom_with_pcb.jpg) |
 | XIAO ESP32-S3, MAX232, 14500 battery holder | Custom PCB in 3D-printed case with RJ-12 connector |
 
+### PCB
+
+Gerber files and a DXF for CNC milling are in the `pcb/` directory. The PCB was designed as a single-layer board, CNC milled with only the bottom side island-routed (see the included DXF).
+
+**Note:** One screw hole collides with the 5V SMD pad on the XIAO ESP32-S3. This was not fixed since it doesn't matter for the milled version (no top copper). If you plan to send the Gerber to a PCB manufacturer, be aware of this overlap — you'll likely want to leave the top copper layer empty or remove that pad from the design.
+
 ## Features
 
 ### Training
